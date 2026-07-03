@@ -25,6 +25,15 @@ export default function Page() {
   const [tab, setTab] = useState<Tab>("dashboard")
   const [range, setRange] = useState<DateRange>({ from: "", to: "" })
   const [focusMonth, setFocusMonth] = useState<string | null>(null)
+
+  // Default the report timeframe to the current day. Done on the client after
+  // mount so the range reflects the user's local date (and avoids an SSR
+  // timezone hydration mismatch).
+  useEffect(() => {
+    const today = new Date().toLocaleDateString("en-CA") // YYYY-MM-DD in local time
+    setRange({ from: today, to: today })
+  }, [])
+
   const salesRef = useRef<HTMLDivElement>(null)
   const refresh = () => mutate()
 
