@@ -37,6 +37,11 @@ export function FilterBar({
     onChange({ from: isoDate(from), to: isoDate(to) })
   }
 
+  const applyToday = () => {
+    const today = new Date().toLocaleDateString("en-CA")
+    onChange({ from: today, to: today })
+  }
+
   const clear = () => onChange({ from: "", to: "" })
   const hasFilter = Boolean(range.from || range.to)
 
@@ -73,6 +78,9 @@ export function FilterBar({
         </div>
 
         <div className="flex gap-1.5">
+          <button onClick={applyToday} className={btnCls}>
+            Today
+          </button>
           {PRESETS.map((p) => (
             <button key={p.label} onClick={() => applyPreset(p.months)} className={btnCls}>
               {p.label}
