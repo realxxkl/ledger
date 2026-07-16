@@ -14,6 +14,18 @@ export async function POST(req: NextRequest) {
     if (!b?.service || !b?.platform || !b?.date) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
+
+    let paidUsd = Number(b.paid) || 0
+    let exchangeRate: number | undefined
+    let originalCurrency: string | undefined
+
+    // If cost was in EGP, store the exchange rate for audit trail
+    // (The form already converted paidUsd client-side, so we don't convert again)
+    if (b.costCurrency === 'egp' && b.exchangeRate) {
+      exchangeRate = Number(b.exchangeRate)
+      originalCurrency = 'egp'
+    }
+
     await db.insert(entries).values({
       service: String(b.service),
       platform: String(b.platform),
@@ -21,8 +33,10 @@ export async function POST(req: NextRequest) {
       earned: s(b.earned),
       feePercent: s(b.feePercent),
       feeAmt: s(b.feeAmt),
-      paid: s(b.paid),
+      paid: s(paidUsd),
       profit: s(b.profit),
+      exchangeRate: exchangeRate ? String(exchangeRate) : null,
+      originalCurrency: originalCurrency || null,
     })
     return NextResponse.json({ ok: true })
   } catch (err) {

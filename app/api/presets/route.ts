@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
     const b = await req.json()
     const name = String(b?.name || "").trim()
     if (!name) return NextResponse.json({ error: "Missing name" }, { status: 400 })
-    await db.insert(presets).values({ name, cost: s(b.cost) })
+    const currency = (b?.currency === 'egp' ? 'egp' : 'usd') as 'usd' | 'egp'
+    await db.insert(presets).values({ name, cost: s(b.cost), currency })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[v0] POST /api/presets failed:", err)

@@ -10,6 +10,8 @@ export const entries = pgTable("entries", {
   feeAmt: numeric("fee_amt").notNull().default("0"),
   paid: numeric("paid").notNull().default("0"),
   profit: numeric("profit").notNull().default("0"),
+  exchangeRate: numeric("exchange_rate"),
+  originalCurrency: text("original_currency"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -33,4 +35,5 @@ export const presets = pgTable("presets", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   cost: numeric("cost").notNull().default("0"),
+  currency: text("currency").notNull().default("usd"),
 })

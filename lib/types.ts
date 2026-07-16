@@ -8,6 +8,8 @@ export type Entry = {
   feeAmt: number
   paid: number
   profit: number
+  exchangeRate?: number
+  originalCurrency?: string
 }
 
 export type Withdrawal = {
@@ -28,6 +30,7 @@ export type ServicePreset = {
   id: string
   name: string
   cost: number
+  currency?: 'usd' | 'egp'
 }
 
 export type LedgerData = {
