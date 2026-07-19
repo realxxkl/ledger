@@ -42,6 +42,8 @@ export async function getLedger() {
       feeAmt: num(e.feeAmt),
       paid: num(e.paid),
       profit: num(e.profit),
+      exchangeRate: e.exchangeRate ? num(e.exchangeRate) : undefined,
+      originalCurrency: e.originalCurrency || undefined,
     })),
     withdrawals: withdrawalRows.map((w) => ({
       id: String(w.id),
@@ -55,6 +57,7 @@ export async function getLedger() {
       id: String(p.id),
       name: p.name,
       cost: num(p.cost),
+      currency: (p.currency as 'usd' | 'egp') || 'usd',
     })),
   }
 }

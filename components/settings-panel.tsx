@@ -98,13 +98,15 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
 function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => void }) {
   const [name, setName] = useState("")
   const [cost, setCost] = useState("")
+  const [currency, setCurrency] = useState<'usd' | 'egp'>('usd')
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    await apiSend("/api/presets", "POST", { name: name.trim(), cost: Number(cost) || 0 })
+    await apiSend("/api/presets", "POST", { name: name.trim(), cost: Number(cost) || 0, currency })
     setName("")
     setCost("")
+    setCurrency('usd')
     onChange()
   }
 
@@ -118,10 +120,18 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
       <div className="border-b-2 border-border px-5 py-4">
         <h2 className="font-display text-xl font-black uppercase tracking-tight">Service Presets</h2>
       </div>
-      <form onSubmit={add} className="grid grid-cols-3 gap-3 border-b-2 border-border p-5">
+      <form onSubmit={add} className="grid grid-cols-4 gap-3 border-b-2 border-border p-5">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Service name" className={`${inputCls} col-span-2`} />
-        <input type="number" step="0.01" min="0" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Cost $" className={inputCls} />
-        <button type="submit" className={`${primaryBtn} col-span-3 justify-self-start`}>
+        <input type="number" step="0.01" min="0" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Cost" className={inputCls} />
+        <select
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value as 'usd' | 'egp')}
+          className={inputCls}
+        >
+          <option value="usd">USD</option>
+          <option value="egp">EGP</option>
+        </select>
+        <button type="submit" className={`${primaryBtn} col-span-4 justify-self-start`}>
           <Plus className="size-4" aria-hidden="true" />
           Add Preset
         </button>
@@ -136,7 +146,9 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
             <li key={p.id} className="flex items-center justify-between px-5 py-3 text-sm">
               <span className="font-bold">{p.name}</span>
               <div className="flex items-center gap-4">
-                <span className="text-muted-foreground">{currency(p.cost)}</span>
+                <span className="text-muted-foreground">
+                  {p.cost.toFixed(2)} {p.currency?.toUpperCase() || 'USD'}
+                </span>
                 <button
                   onClick={() => remove(p.id)}
                   className="p-1.5 text-muted-foreground transition-colors hover:text-negative"
