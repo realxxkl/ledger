@@ -144,7 +144,7 @@ export default function Page() {
                 <>
                   <FilterBar range={range} onChange={setRange} entries={filtered.entries} />
                   <SummaryCards data={filtered} />
-                  <MonthlyChart entries={filtered.entries} onSelectMonth={handleMonthSelect} />
+                  <MonthlyChart entries={filtered.entries} dateRange={range} onSelectMonth={handleMonthSelect} />
                   <EntryForm data={data} onDone={refresh} />
                   <div ref={salesRef}>
                     <EntriesTable

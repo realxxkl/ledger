@@ -12,8 +12,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import type { Entry } from "@/lib/types"
-import { currency, toMonthly } from "@/lib/types"
+import type { Entry, DateRange } from "@/lib/types"
+import { currency, toMonthly, toDaily } from "@/lib/types"
 
 type Metric = "earned" | "profit" | "fees"
 
@@ -43,17 +43,38 @@ function ChartTooltip({ active, payload, label }: any) {
 
 export function MonthlyChart({
   entries,
+  dateRange,
   onSelectMonth,
 }: {
   entries: Entry[]
+  dateRange?: DateRange
   onSelectMonth?: (month: string) => void
 }) {
   const [metric, setMetric] = useState<Metric>("profit")
-  const monthly = useMemo(() => toMonthly(entries), [entries])
+
+  // Determine if we should show daily or monthly view based on date range
+  const dayCount = useMemo(() => {
+    if (!dateRange?.from || !dateRange?.to) return null
+    const from = new Date(dateRange.from)
+    const to = new Date(dateRange.to)
+    const days = Math.floor((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    return days
+  }, [dateRange])
+
+  const isDaily = dayCount !== null && dayCount <= 31 // Show daily view if 31 days or less
+  const data = useMemo(() => {
+    return isDaily ? toDaily(entries) : toMonthly(entries)
+  }, [entries, isDaily])
 
   const handleBarClick = (payload: any) => {
-    const month = payload?.month ?? payload?.payload?.month
-    if (month && onSelectMonth) onSelectMonth(month)
+    if (isDaily) {
+      // For daily view, convert date (YYYY-MM-DD) to month (YYYY-MM)
+      const date = payload?.date ?? payload?.payload?.date
+      if (date && onSelectMonth) onSelectMonth(date.slice(0, 7))
+    } else {
+      const month = payload?.month ?? payload?.payload?.month
+      if (month && onSelectMonth) onSelectMonth(month)
+    }
   }
 
   return (
@@ -62,7 +83,7 @@ export function MonthlyChart({
         <div>
           <h2 className="font-display text-xl font-black uppercase tracking-tight">Profit Chart</h2>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
-            Click a bar to jump to that month&apos;s sales
+            Click a bar to jump to that {isDaily ? "day" : "month"}&apos;s sales
           </p>
         </div>
         <div className="flex gap-0 border-2 border-border">
@@ -82,14 +103,14 @@ export function MonthlyChart({
         </div>
       </div>
 
-      {monthly.length === 0 ? (
+      {data.length === 0 ? (
         <p className="py-16 text-center text-sm uppercase tracking-wider text-muted-foreground">
-          No data in this range yet. Add sales to see monthly trends.
+          No data in this range yet. Add sales to see {isDaily ? "daily" : "monthly"} trends.
         </p>
       ) : (
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={monthly} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <ComposedChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border)" />
               <XAxis
                 dataKey="label"
@@ -113,8 +134,8 @@ export function MonthlyChart({
                 onClick={handleBarClick}
                 className="cursor-pointer"
               >
-                {monthly.map((m) => (
-                  <Cell key={m.month} className="cursor-pointer" />
+                {data.map((m) => (
+                  <Cell key={isDaily ? (m as any).date : (m as any).month} className="cursor-pointer" />
                 ))}
               </Bar>
               <Line

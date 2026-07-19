@@ -63,6 +63,15 @@ export type MonthlyPoint = {
   cost: number
 }
 
+export type DailyPoint = {
+  date: string // YYYY-MM-DD
+  label: string // e.g. "Jan 25"
+  earned: number
+  fees: number
+  profit: number
+  cost: number
+}
+
 // Aggregate entries into per-month buckets, sorted chronologically.
 export function toMonthly(entries: Entry[]): MonthlyPoint[] {
   const map = new Map<string, MonthlyPoint>()
@@ -86,6 +95,38 @@ export function toMonthly(entries: Entry[]): MonthlyPoint[] {
     map.set(month, existing)
   }
   return [...map.values()].sort((a, b) => a.month.localeCompare(b.month))
+}
+
+// Aggregate entries into per-day buckets, sorted chronologically.
+export function toDaily(entries: Entry[]): DailyPoint[] {
+  const map = new Map<string, DailyPoint>()
+  for (const e of entries) {
+    const date = e.date || ""
+    if (!date) continue
+    const existing =
+      map.get(date) ??
+      {
+        date,
+        label: dayLabel(date),
+        earned: 0,
+        fees: 0,
+        profit: 0,
+        cost: 0,
+      }
+    existing.earned += e.earned
+    existing.fees += e.feeAmt
+    existing.profit += e.profit
+    existing.cost += e.paid
+    map.set(date, existing)
+  }
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+function dayLabel(date: string): string {
+  const [y, m, d] = date.split("-").map(Number)
+  if (!y || !m || !d) return date
+  const dateObj = new Date(y, m - 1, d)
+  return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
 function monthLabel(month: string): string {
