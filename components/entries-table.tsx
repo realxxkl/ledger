@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Trash2, X } from "lucide-react"
+import { Trash2, X, Edit2, Check } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
@@ -24,6 +24,18 @@ export function EntriesTable({
   onClearFocus?: () => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [editingStatus, setEditingStatus] = useState<string | null>(null)
+  const [statusValue, setStatusValue] = useState<string>("")
+
+  const saveStatus = async (id: string) => {
+    try {
+      await apiSend("/api/entries", "PATCH", { id: Number(id), orderStatus: statusValue })
+      setEditingStatus(null)
+      onChange()
+    } catch (err) {
+      console.error("[v0] Failed to update status:", err)
+    }
+  }
 
   const remove = async (id: string) => {
     setBusy(id)
@@ -81,6 +93,7 @@ export function EntriesTable({
                 <th className="px-5 py-3 text-right font-bold">Sale Fee</th>
                 <th className="px-5 py-3 text-right font-bold">Paid</th>
                 <th className="px-5 py-3 text-right font-bold">Profit</th>
+                <th className="px-5 py-3 font-bold">Status</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
@@ -99,6 +112,40 @@ export function EntriesTable({
                     }`}
                   >
                     {currency(e.profit)}
+                  </td>
+                  <td className="px-5 py-3">
+                    {editingStatus === e.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={statusValue}
+                          onChange={(evt) => setStatusValue(evt.target.value)}
+                          placeholder="Status"
+                          className="flex-1 border border-border bg-background px-2 py-1 text-xs"
+                        />
+                        <button
+                          onClick={() => saveStatus(e.id)}
+                          className="p-1 text-primary hover:text-primary/80"
+                          aria-label="Save status"
+                        >
+                          <Check className="size-3" aria-hidden="true" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">{e.orderStatus || "-"}</span>
+                        <button
+                          onClick={() => {
+                            setEditingStatus(e.id)
+                            setStatusValue(e.orderStatus || "")
+                          }}
+                          className="p-1 text-muted-foreground transition-colors hover:text-primary"
+                          aria-label="Edit status"
+                        >
+                          <Edit2 className="size-3" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-right">
                     <button
