@@ -9,7 +9,9 @@ export function SummaryCards({ data }: { data: LedgerData }) {
   const totalFees =
     data.entries.reduce((s, e) => s + e.feeAmt, 0) +
     data.withdrawals.reduce((s, w) => s + w.fee, 0)
-  const totalProfit = data.entries.reduce((s, e) => s + e.profit, 0)
+  const entriesProfit = data.entries.reduce((s, e) => s + e.profit, 0)
+  const withdrawalAmount = data.withdrawals.reduce((s, w) => s + w.amount, 0)
+  const totalProfit = entriesProfit - withdrawalAmount
   const totalPaid = data.entries.reduce((s, e) => s + e.paid, 0)
 
   const cards = [
