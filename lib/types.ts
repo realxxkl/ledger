@@ -10,6 +10,8 @@ export type Entry = {
   profit: number
   exchangeRate?: number
   originalCurrency?: string
+  orderStatus?: string
+  u7buyOrderId?: string
 }
 
 export type Withdrawal = {

@@ -3,6 +3,17 @@ import { db } from "@/lib/db"
 import { entries } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 
+// Map U7Buy order statuses to display names
+const ORDER_STATUS_MAP: Record<number, string> = {
+  1: "New Order Received",
+  2: "Processing",
+  3: "In Progress",
+  4: "Awaiting Delivery",
+  5: "To Receive",
+  6: "Completed",
+  7: "Cancelled",
+}
+
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -37,11 +48,28 @@ export async function POST(req: NextRequest) {
       profit: s(b.profit),
       exchangeRate: exchangeRate ? String(exchangeRate) : null,
       originalCurrency: originalCurrency || null,
+      orderStatus: b.orderStatus || null,
+      u7buyOrderId: b.u7buyOrderId || null,
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[v0] POST /api/entries failed:", err)
     return NextResponse.json({ error: "Failed to add entry" }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const b = await req.json()
+    const { id, orderStatus } = b
+    if (!id) {
+      return NextResponse.json({ error: "Missing entry id" }, { status: 400 })
+    }
+    await db.update(entries).set({ orderStatus: orderStatus || null }).where(eq(entries.id, Number(id)))
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    console.error("[v0] PATCH /api/entries failed:", err)
+    return NextResponse.json({ error: "Failed to update entry" }, { status: 500 })
   }
 }
 

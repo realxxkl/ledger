@@ -44,6 +44,8 @@ export async function getLedger() {
       profit: num(e.profit),
       exchangeRate: e.exchangeRate ? num(e.exchangeRate) : undefined,
       originalCurrency: e.originalCurrency || undefined,
+      orderStatus: e.orderStatus || undefined,
+      u7buyOrderId: e.u7buyOrderId || undefined,
     })),
     withdrawals: withdrawalRows.map((w) => ({
       id: String(w.id),
