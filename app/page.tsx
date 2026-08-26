@@ -24,6 +24,7 @@ export default function Page() {
   const { data, error, isLoading, mutate } = useLedger()
   const [tab, setTab] = useState<Tab>("dashboard")
   const [range, setRange] = useState<DateRange>({ from: "", to: "" })
+  const [platform, setPlatform] = useState("")
   const [focusMonth, setFocusMonth] = useState<string | null>(null)
 
   // Default the report timeframe to the current day. Done on the client after
@@ -37,16 +38,27 @@ export default function Page() {
   const salesRef = useRef<HTMLDivElement>(null)
   const refresh = () => mutate()
 
-  // Apply the date range to entries/withdrawals so cards, charts, and the
-  // table all reflect the same filtered window.
+  const platforms = useMemo(() => {
+    if (!data) return []
+    return [...new Set([...data.entries, ...data.withdrawals].map((item) => item.platform))].sort((a, b) =>
+      a.localeCompare(b),
+    )
+  }, [data])
+
+  // Apply the date range and platform together so every dashboard statistic,
+  // chart, table row, withdrawal fee, and CSV export reflects one selection.
   const filtered = useMemo(() => {
     if (!data) return null
+    const entries = filterByRange(data.entries, range)
+    const withdrawals = filterByRange(data.withdrawals, range)
     return {
       ...data,
-      entries: filterByRange(data.entries, range),
-      withdrawals: filterByRange(data.withdrawals, range),
+      entries: platform ? entries.filter((entry) => entry.platform === platform) : entries,
+      withdrawals: platform
+        ? withdrawals.filter((withdrawal) => withdrawal.platform === platform)
+        : withdrawals,
     }
-  }, [data, range])
+  }, [data, range, platform])
 
   // Clicking a chart bar jumps to that month's sales in the table below.
   const handleMonthSelect = (month: string) => {
@@ -142,7 +154,14 @@ export default function Page() {
             <div className="flex flex-col gap-6">
               {tab === "dashboard" && (
                 <>
-                  <FilterBar range={range} onChange={setRange} entries={filtered.entries} />
+                  <FilterBar
+                    range={range}
+                    onChange={setRange}
+                    entries={filtered.entries}
+                    platform={platform}
+                    platforms={platforms}
+                    onPlatformChange={setPlatform}
+                  />
                   <SummaryCards data={filtered} />
                   <MonthlyChart entries={filtered.entries} dateRange={range} onSelectMonth={handleMonthSelect} />
                   <EntryForm data={data} onDone={refresh} />

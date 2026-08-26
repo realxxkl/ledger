@@ -25,10 +25,16 @@ export function FilterBar({
   range,
   onChange,
   entries,
+  platform,
+  platforms,
+  onPlatformChange,
 }: {
   range: DateRange
   onChange: (r: DateRange) => void
   entries: Entry[]
+  platform: string
+  platforms: string[]
+  onPlatformChange: (platform: string) => void
 }) {
   const applyPreset = (months: number) => {
     const to = new Date()
@@ -75,6 +81,25 @@ export function FilterBar({
             onChange={(e) => onChange({ ...range, to: e.target.value })}
             className={inputCls}
           />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="platform" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Platform
+          </label>
+          <select
+            id="platform"
+            value={platform}
+            onChange={(event) => onPlatformChange(event.target.value)}
+            className={`${inputCls} min-w-40`}
+          >
+            <option value="">All platforms</option>
+            {platforms.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex gap-1.5">
