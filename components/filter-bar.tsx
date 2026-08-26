@@ -25,16 +25,16 @@ export function FilterBar({
   range,
   onChange,
   entries,
-  platform,
+  selectedPlatforms,
   platforms,
-  onPlatformChange,
+  onPlatformsChange,
 }: {
   range: DateRange
   onChange: (r: DateRange) => void
   entries: Entry[]
-  platform: string
+  selectedPlatforms: string[]
   platforms: string[]
-  onPlatformChange: (platform: string) => void
+  onPlatformsChange: (platforms: string[]) => void
 }) {
   const applyPreset = (months: number) => {
     const to = new Date()
@@ -83,24 +83,47 @@ export function FilterBar({
           />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="platform" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            Platform
-          </label>
-          <select
-            id="platform"
-            value={platform}
-            onChange={(event) => onPlatformChange(event.target.value)}
-            className={`${inputCls} min-w-40`}
-          >
-            <option value="">All platforms</option>
-            {platforms.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </div>
+        <fieldset className="flex min-w-40 flex-col gap-1">
+          <legend className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Platforms
+          </legend>
+          <div className="flex flex-wrap gap-1.5" aria-label="Filter by platforms">
+            <button
+              type="button"
+              onClick={() => onPlatformsChange([])}
+              aria-pressed={selectedPlatforms.length === 0}
+              className={`${btnCls} ${
+                selectedPlatforms.length === 0
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "bg-background"
+              }`}
+            >
+              All
+            </button>
+            {platforms.map((option) => {
+              const selected = selectedPlatforms.includes(option)
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() =>
+                    onPlatformsChange(
+                      selected
+                        ? selectedPlatforms.filter((platform) => platform !== option)
+                        : [...selectedPlatforms, option],
+                    )
+                  }
+                  aria-pressed={selected}
+                  className={`${btnCls} ${
+                    selected ? "border-primary bg-primary text-primary-foreground" : "bg-background"
+                  }`}
+                >
+                  {option}
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
 
         <div className="flex gap-1.5">
           <button onClick={applyToday} className={btnCls}>

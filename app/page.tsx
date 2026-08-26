@@ -24,7 +24,7 @@ export default function Page() {
   const { data, error, isLoading, mutate } = useLedger()
   const [tab, setTab] = useState<Tab>("dashboard")
   const [range, setRange] = useState<DateRange>({ from: "", to: "" })
-  const [platform, setPlatform] = useState("")
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [focusMonth, setFocusMonth] = useState<string | null>(null)
 
   // Default the report timeframe to the current day. Done on the client after
@@ -53,12 +53,16 @@ export default function Page() {
     const withdrawals = filterByRange(data.withdrawals, range)
     return {
       ...data,
-      entries: platform ? entries.filter((entry) => entry.platform === platform) : entries,
-      withdrawals: platform
-        ? withdrawals.filter((withdrawal) => withdrawal.platform === platform)
-        : withdrawals,
+      entries:
+        selectedPlatforms.length > 0
+          ? entries.filter((entry) => selectedPlatforms.includes(entry.platform))
+          : entries,
+      withdrawals:
+        selectedPlatforms.length > 0
+          ? withdrawals.filter((withdrawal) => selectedPlatforms.includes(withdrawal.platform))
+          : withdrawals,
     }
-  }, [data, range, platform])
+  }, [data, range, selectedPlatforms])
 
   // Clicking a chart bar jumps to that month's sales in the table below.
   const handleMonthSelect = (month: string) => {
@@ -158,9 +162,9 @@ export default function Page() {
                     range={range}
                     onChange={setRange}
                     entries={filtered.entries}
-                    platform={platform}
+                    selectedPlatforms={selectedPlatforms}
                     platforms={platforms}
-                    onPlatformChange={setPlatform}
+                    onPlatformsChange={setSelectedPlatforms}
                   />
                   <SummaryCards data={filtered} />
                   <MonthlyChart entries={filtered.entries} dateRange={range} onSelectMonth={handleMonthSelect} />
