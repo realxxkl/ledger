@@ -1,6 +1,6 @@
 "use client"
 
-import { Download, X } from "lucide-react"
+import { ChevronDown, Download, X } from "lucide-react"
 import type { DateRange, Entry } from "@/lib/types"
 import { exportEntriesCsv } from "@/lib/types"
 
@@ -25,10 +25,16 @@ export function FilterBar({
   range,
   onChange,
   entries,
+  selectedPlatforms,
+  platforms,
+  onPlatformsChange,
 }: {
   range: DateRange
   onChange: (r: DateRange) => void
   entries: Entry[]
+  selectedPlatforms: string[]
+  platforms: string[]
+  onPlatformsChange: (platforms: string[]) => void
 }) {
   const applyPreset = (months: number) => {
     const to = new Date()
@@ -75,6 +81,62 @@ export function FilterBar({
             onChange={(e) => onChange({ ...range, to: e.target.value })}
             className={inputCls}
           />
+        </div>
+
+        <div className="flex min-w-52 flex-col gap-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Platforms
+          </span>
+          <details className="group relative">
+            <summary className={`${inputCls} flex min-h-9 cursor-pointer list-none items-center justify-between gap-3 font-bold uppercase tracking-wider [&::-webkit-details-marker]:hidden`}>
+              <span className="max-w-44 truncate">
+                {selectedPlatforms.length === 0
+                  ? "All platforms"
+                  : selectedPlatforms.length === 1
+                    ? selectedPlatforms[0]
+                    : `${selectedPlatforms.length} platforms selected`}
+              </span>
+              <ChevronDown
+                className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+                aria-hidden="true"
+              />
+            </summary>
+            <div className="absolute left-0 top-full z-20 mt-1 min-w-full border-2 border-border bg-card p-2 shadow-lg">
+              <label className="flex cursor-pointer items-center gap-2 px-2 py-2 text-xs font-bold uppercase tracking-wider hover:bg-muted">
+                <input
+                  type="checkbox"
+                  checked={selectedPlatforms.length === 0}
+                  onChange={() => onPlatformsChange([])}
+                  className="size-4 accent-primary"
+                />
+                All platforms
+              </label>
+              <div className="my-1 border-t border-border" />
+              {platforms.map((option) => {
+                const selected = selectedPlatforms.includes(option)
+                return (
+                  <label
+                    key={option}
+                    className="flex cursor-pointer items-center gap-2 px-2 py-2 text-xs font-bold uppercase tracking-wider hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() =>
+                        onPlatformsChange(
+                          selected
+                            ? selectedPlatforms.filter((platform) => platform !== option)
+                            : [...selectedPlatforms, option],
+                        )
+                      }
+                      className="size-4 accent-primary"
+                    />
+                    {option}
+                  </label>
+                )
+              })}
+            </div>
+          </details>
         </div>
 
         <div className="flex gap-1.5">
