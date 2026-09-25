@@ -41,6 +41,7 @@ export function PendingOrders({
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
   const [authError, setAuthError] = useState("")
   const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>({})
+  const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
   )
@@ -55,11 +56,31 @@ export function PendingOrders({
       })
       const data = await response.json()
       if (!response.ok || !data.code) throw new Error(data.error)
-      await navigator.clipboard.writeText(data.code)
+      const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Flogin%3Fclient_id%3D3f69e56c7649492c8cc29f1af08a8a12%26response_type%3Dcode%26display%3Dpopup%2520guided`
+      setExchangeLinks((current) => ({ ...current, [order.id]: link }))
+      await navigator.clipboard.writeText(link)
       setCopiedOrderId(order.u7buyOrderId ?? null)
       window.setTimeout(() => setCopiedOrderId(null), 1800)
     } catch {
       setAuthError("Could not generate the Epic exchange code.")
+    }
+  }
+
+  async function handleOpenFortnite(order: Entry) {
+    setAuthError("")
+    try {
+      const response = await fetch("/api/epic/exchange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.code) throw new Error(data.error)
+      const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Flogin%3Fclient_id%3D3f69e56c7649492c8cc29f1af08a8a12%26response_type%3Dcode%26display%3Dpopup%2520guided`
+      setExchangeLinks((current) => ({ ...current, [order.id]: link }))
+      window.open(link, "_blank", "noopener,noreferrer")
+    } catch {
+      setAuthError("Could not open Fortnite with a fresh Epic exchange link.")
     }
   }
 
@@ -262,27 +283,57 @@ export function PendingOrders({
                     Epic: {epicAccounts[order.id]}
                   </p>
                 )}
-                <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleGenerateLoginLink(order)}
-                  className="mt-3 border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
-                >
-                  {authLinkOrderId === order.u7buyOrderId
-                    ? "Generating..."
-                    : copiedOrderId === order.u7buyOrderId
-                      ? "Epic link copied"
-                      : "Generate Epic auth link"}
-                </button>
-                {epicAccounts[order.id] && (
-                  <button
-                    type="button"
-                    onClick={() => handleExchangeCode(order)}
-                    className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
-                  >
-                    {copiedOrderId === order.u7buyOrderId ? "Code copied" : "Generate exchange code"}
-                  </button>
-                )}
+                <div className="mt-3 flex flex-col items-start gap-2">
+                  {!epicAccounts[order.id] && (
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateLoginLink(order)}
+                      className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
+                    >
+                      {authLinkOrderId === order.u7buyOrderId ? "Generating..." : "Generate Epic auth link"}
+                    </button>
+                  )}
+                  {epicAccounts[order.id] && (
+                    <>
+                      <div className="flex w-full max-w-xl gap-2">
+                        <input
+                          readOnly
+                          value={exchangeLinks[order.id] || "Generate an exchange code link"}
+                          className="min-w-0 flex-1 border-2 border-border bg-background px-3 py-1.5 text-[10px] text-muted-foreground outline-none"
+                          aria-label={`Epic exchange link for order ${order.u7buyOrderId}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!exchangeLinks[order.id]) return
+                            await navigator.clipboard.writeText(exchangeLinks[order.id])
+                            setCopiedOrderId(order.u7buyOrderId ?? null)
+                            window.setTimeout(() => setCopiedOrderId(null), 1800)
+                          }}
+                          disabled={!exchangeLinks[order.id]}
+                          className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+                        >
+                          {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleExchangeCode(order)}
+                          className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
+                        >
+                          Generate exchange code link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenFortnite(order)}
+                          className="border-2 border-primary bg-primary px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
+                        >
+                          Open Fortnite
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
