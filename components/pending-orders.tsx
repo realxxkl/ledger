@@ -38,6 +38,8 @@ export function PendingOrders({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
+  const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
+  const [authError, setAuthError] = useState("")
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
   )
@@ -53,10 +55,21 @@ export function PendingOrders({
 
   async function handleGenerateLoginLink(order: Entry) {
     if (!order.u7buyOrderId) return
-    const loginLink = `${window.location.origin}/?order=${encodeURIComponent(order.u7buyOrderId)}`
-    await navigator.clipboard.writeText(loginLink)
-    setCopiedOrderId(order.u7buyOrderId)
-    window.setTimeout(() => setCopiedOrderId(null), 1800)
+    setAuthError("")
+    setAuthLinkOrderId(order.u7buyOrderId)
+    try {
+      const response = await fetch("/api/epic/generate", { method: "POST" })
+      const data = await response.json()
+      if (!response.ok || !data.verification_uri_complete) throw new Error(data.error)
+      await navigator.clipboard.writeText(data.verification_uri_complete)
+      window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
+      setCopiedOrderId(order.u7buyOrderId)
+      window.setTimeout(() => setCopiedOrderId(null), 1800)
+    } catch {
+      setAuthError("Could not generate the Epic auth link.")
+    } finally {
+      setAuthLinkOrderId(null)
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -180,6 +193,8 @@ export function PendingOrders({
         {error && <p className="mt-2 text-xs font-bold text-destructive">{error}</p>}
       </form>
 
+      {authError && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{authError}</p>}
+
       {orders.length === 0 ? (
         <div className="flex flex-col items-center gap-3 px-5 py-14 text-center">
           <PackageCheck className="size-8 text-primary" aria-hidden="true" />
@@ -207,7 +222,11 @@ export function PendingOrders({
                   onClick={() => handleGenerateLoginLink(order)}
                   className="mt-3 border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
                 >
-                  {copiedOrderId === order.u7buyOrderId ? "Login link copied" : "Generate login link"}
+                  {authLinkOrderId === order.u7buyOrderId
+                    ? "Generating..."
+                    : copiedOrderId === order.u7buyOrderId
+                      ? "Epic link copied"
+                      : "Generate Epic auth link"}
                 </button>
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
