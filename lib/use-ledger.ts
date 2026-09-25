@@ -18,7 +18,7 @@ export function useLedger() {
 
 export async function apiSend(
   url: string,
-  method: "POST" | "PUT" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
 ): Promise<void> {
   const res = await fetch(url, {
