@@ -56,7 +56,7 @@ export function PendingOrders({
       })
       const data = await response.json()
       if (!response.ok || !data.code) throw new Error(data.error)
-      const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Flogin%3Fclient_id%3D3f69e56c7649492c8cc29f1af08a8a12%26response_type%3Dcode%26display%3Dpopup%2520guided`
+      const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Faccount`
       setExchangeLinks((current) => ({ ...current, [order.id]: link }))
       await navigator.clipboard.writeText(link)
       setCopiedOrderId(order.u7buyOrderId ?? null)
