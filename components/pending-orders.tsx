@@ -15,6 +15,7 @@ function statusTone(status: string) {
 }
 
 export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChange: () => void }) {
+  const [productName, setProductName] = useState("")
   const [orderId, setOrderId] = useState("")
   const [amount, setAmount] = useState("")
   const [isSaving, setIsSaving] = useState(false)
@@ -26,8 +27,8 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const numericAmount = Number(amount)
-    if (!orderId.trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-      setError("Enter an order ID and a positive amount.")
+    if (!productName.trim() || !orderId.trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError("Enter a product name, order ID, and a positive amount.")
       return
     }
 
@@ -38,7 +39,7 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          service: "Manual order",
+          service: productName.trim(),
           platform: "Manual",
           date: new Date().toISOString().slice(0, 10),
           earned: numericAmount,
@@ -49,6 +50,7 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
         }),
       })
       if (!response.ok) throw new Error("Unable to save order")
+      setProductName("")
       setOrderId("")
       setAmount("")
       onChange()
@@ -63,9 +65,9 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
     <section className="border-2 border-border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border px-5 py-4">
         <div>
-          <h2 className="font-display text-xl font-black uppercase tracking-tight">Pending orders</h2>
+          <h2 className="font-display text-xl font-black uppercase tracking-tight">orders</h2>
           <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
-            U7Buy orders that still need attention
+            orders that need attention
           </p>
         </div>
         <span className="border-2 border-primary px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
@@ -76,9 +78,18 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
       <form onSubmit={handleSubmit} className="border-b-2 border-border bg-background/40 px-5 py-4">
         <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
           <Plus className="size-4" aria-hidden="true" />
-          Create new pending order
+          add new order
         </div>
-        <div className="grid gap-3 sm:grid-cols-[1fr_180px_auto] sm:items-end">
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_180px_auto] sm:items-end">
+          <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Product name
+            <input
+              value={productName}
+              onChange={(event) => setProductName(event.target.value)}
+              placeholder="e.g. Premium Bundle"
+              className="h-10 border-2 border-border bg-card px-3 text-sm font-bold tracking-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary"
+            />
+          </label>
           <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Order ID
             <input

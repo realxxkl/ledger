@@ -12,7 +12,7 @@ import { SettingsPanel } from "@/components/settings-panel"
 import { FilterBar } from "@/components/filter-bar"
 import { MonthlyChart } from "@/components/monthly-chart"
 import { SignOutButton } from "@/components/sign-out-button"
-import { PendingOrders, pendingOrderCount } from "@/components/pending-orders"
+import { PendingOrders } from "@/components/pending-orders"
 
 type Tab = "dashboard" | "withdrawals" | "settings" | "pending-orders"
 
@@ -129,7 +129,7 @@ export default function Page() {
                       : "border-border text-foreground hover:border-primary hover:text-primary"
                   }`}
                 >
-                  Pending orders{data ? ` (${pendingOrderCount(data.entries)})` : ""}
+                  Orders
                 </button>
                 <SignOutButton />
               </div>
