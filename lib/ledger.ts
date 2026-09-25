@@ -47,6 +47,8 @@ export async function getLedger() {
       orderStatus: e.orderStatus || undefined,
       u7buyOrderId: e.u7buyOrderId || undefined,
       orderAmount: num(e.orderAmount),
+      orderCost: num(e.orderCost),
+      orderFee: num(e.orderFee),
     })),
     withdrawals: withdrawalRows.map((w) => ({
       id: String(w.id),

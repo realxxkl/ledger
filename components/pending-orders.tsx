@@ -21,12 +21,19 @@ export function PendingOrders({
   onChange,
 }: {
   entries: Entry[]
-  presets: { id: string; name: string }[]
+  presets: { id: string; name: string; cost: number }[]
+  feeConfig: Record<string, { name: string; percent: number; flat: number }>
   onChange: () => void
 }) {
   const [productName, setProductName] = useState("")
+  const [platform, setPlatform] = useState("")
   const [orderId, setOrderId] = useState("")
   const [amount, setAmount] = useState("")
+  const selectedPreset = presets.find((preset) => preset.name === productName)
+  const selectedFee = feeConfig[platform]
+  const platformFee = selectedFee
+    ? Number(amount || 0) * (selectedFee.percent / 100) + selectedFee.flat
+    : 0
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
@@ -54,8 +61,8 @@ export function PendingOrders({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const numericAmount = Number(amount)
-    if (!productName.trim() || !orderId.trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-      setError("Enter a product name, order ID, and a positive amount.")
+    if (!productName.trim() || !platform || !orderId.trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError("Select a product and platform, then enter an order ID and positive amount.")
       return
     }
 
@@ -67,12 +74,14 @@ export function PendingOrders({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           service: productName.trim(),
-          platform: "Manual",
+          platform: selectedFee?.name ?? platform,
           date: new Date().toISOString().slice(0, 10),
           earned: 0,
           paid: 0,
           profit: 0,
           orderAmount: numericAmount,
+          orderCost: selectedPreset?.cost ?? 0,
+          orderFee: platformFee,
           orderStatus: "New Order Received",
           u7buyOrderId: orderId.trim(),
         }),
@@ -121,6 +130,19 @@ export function PendingOrders({
                 <option key={preset.id} value={preset.name}>
                   {preset.name}
                 </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Platform
+            <select
+              value={platform}
+              onChange={(event) => setPlatform(event.target.value)}
+              className="h-10 border-2 border-border bg-card px-3 text-sm font-bold tracking-normal text-foreground outline-none focus:border-primary"
+            >
+              <option value="">Select a platform</option>
+              {Object.entries(feeConfig).map(([key, fee]) => (
+                <option key={key} value={key}>{fee.name}</option>
               ))}
             </select>
           </label>

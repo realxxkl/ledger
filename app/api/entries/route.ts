@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
       paid: s(paidUsd),
       profit: s(b.profit),
       orderAmount: s(b.orderAmount),
+      orderCost: s(b.orderCost),
+      orderFee: s(b.orderFee),
       exchangeRate: exchangeRate ? String(exchangeRate) : null,
       originalCurrency: originalCurrency || null,
       orderStatus: b.orderStatus || null,
@@ -73,9 +75,20 @@ export async function PATCH(req: NextRequest) {
       : { orderStatus: orderStatus || null }
 
     if (isDelivered) {
-      const current = await db.select({ orderAmount: entries.orderAmount }).from(entries).where(eq(entries.id, Number(id)))
-      const orderAmount = current[0]?.orderAmount ?? "0"
-      await db.update(entries).set({ orderStatus: orderStatus || null, earned: orderAmount, profit: orderAmount }).where(eq(entries.id, Number(id)))
+      const current = await db
+        .select({ orderAmount: entries.orderAmount, orderCost: entries.orderCost, orderFee: entries.orderFee })
+        .from(entries)
+        .where(eq(entries.id, Number(id)))
+      const orderAmount = Number(current[0]?.orderAmount ?? 0)
+      const orderCost = Number(current[0]?.orderCost ?? 0)
+      const orderFee = Number(current[0]?.orderFee ?? 0)
+      await db.update(entries).set({
+        orderStatus: orderStatus || null,
+        earned: String(orderAmount),
+        paid: String(orderCost),
+        feeAmt: String(orderFee),
+        profit: String(orderAmount - orderCost - orderFee),
+      }).where(eq(entries.id, Number(id)))
     } else {
       await db.update(entries).set(values).where(eq(entries.id, Number(id)))
     }

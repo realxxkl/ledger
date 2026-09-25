@@ -13,6 +13,8 @@ export type Entry = {
   orderStatus?: string
   u7buyOrderId?: string
   orderAmount?: number
+  orderCost?: number
+  orderFee?: number
 }
 
 export type Withdrawal = {
