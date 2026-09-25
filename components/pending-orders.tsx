@@ -24,6 +24,7 @@ export function PendingOrders({
   entries: Entry[]
   presets: { id: string; name: string; cost: number }[]
   feeConfig: Record<string, { name: string; percent: number; flat: number }>
+  epicSessions: { orderId: string; displayName: string; accountId?: string }[]
   onChange: () => void
 }) {
   const [productName, setProductName] = useState("")
@@ -40,7 +41,9 @@ export function PendingOrders({
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
   const [authError, setAuthError] = useState("")
-  const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>({})
+  const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>(
+    () => Object.fromEntries(epicSessions.map((session) => [Number(session.orderId), session.displayName])),
+  )
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),

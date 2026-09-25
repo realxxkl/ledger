@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { entries, withdrawals, feeConfig, presets } from "@/lib/db/schema"
+import { entries, withdrawals, feeConfig, presets, epicOrderSessions } from "@/lib/db/schema"
 import { desc } from "drizzle-orm"
 
 const DEFAULT_PRESETS = [
@@ -19,11 +19,12 @@ export async function getLedger() {
     await db.insert(presets).values(DEFAULT_PRESETS)
   }
 
-  const [entryRows, withdrawalRows, feeRows, finalPresets] = await Promise.all([
+  const [entryRows, withdrawalRows, feeRows, finalPresets, epicSessionRows] = await Promise.all([
     db.select().from(entries).orderBy(desc(entries.createdAt)),
     db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt)),
     db.select().from(feeConfig),
     presetRows.length === 0 ? db.select().from(presets) : Promise.resolve(presetRows),
+    db.select({ orderId: epicOrderSessions.orderId, displayName: epicOrderSessions.displayName, accountId: epicOrderSessions.accountId }).from(epicOrderSessions),
   ])
 
   const feeConfigObj: Record<string, { name: string; percent: number; flat: number }> = {}
@@ -58,6 +59,11 @@ export async function getLedger() {
       fee: num(w.fee),
     })),
     feeConfig: feeConfigObj,
+    epicSessions: epicSessionRows.map((session) => ({
+      orderId: String(session.orderId),
+      displayName: session.displayName || "Epic account",
+      accountId: session.accountId || undefined,
+    })),
     servicePresets: finalPresets.map((p) => ({
       id: String(p.id),
       name: p.name,
