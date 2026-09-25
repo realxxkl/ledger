@@ -20,9 +20,18 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
   const [amount, setAmount] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
   )
+
+  async function handleGenerateLoginLink(order: Entry) {
+    if (!order.u7buyOrderId) return
+    const loginLink = `${window.location.origin}/?order=${encodeURIComponent(order.u7buyOrderId)}`
+    await navigator.clipboard.writeText(loginLink)
+    setCopiedOrderId(order.u7buyOrderId)
+    window.setTimeout(() => setCopiedOrderId(null), 1800)
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -145,6 +154,13 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
                 <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
                   Order {order.u7buyOrderId} · {order.date}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => handleGenerateLoginLink(order)}
+                  className="mt-3 border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
+                >
+                  {copiedOrderId === order.u7buyOrderId ? "Login link copied" : "Generate login link"}
+                </button>
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                 <Clock3 className="size-3.5" aria-hidden="true" />
