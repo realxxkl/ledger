@@ -1,4 +1,4 @@
-import { boolean, pgTable, serial, text, numeric, timestamp } from "drizzle-orm/pg-core"
+import { boolean, integer, pgTable, serial, text, numeric, timestamp } from "drizzle-orm/pg-core"
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -46,6 +46,18 @@ export const verification = pgTable("verification", {
   expiresAt: timestamp("expiresAt").notNull(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+})
+
+export const epicOrderSessions = pgTable("epic_order_sessions", {
+  id: text("id").primaryKey(),
+  orderId: integer("order_id").notNull().unique(),
+  accountId: text("account_id"),
+  displayName: text("display_name"),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 })
 
 export const entries = pgTable("entries", {

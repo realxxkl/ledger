@@ -40,9 +40,28 @@ export function PendingOrders({
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
   const [authError, setAuthError] = useState("")
+  const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>({})
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
   )
+
+  async function handleExchangeCode(order: Entry) {
+    setAuthError("")
+    try {
+      const response = await fetch("/api/epic/exchange", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.code) throw new Error(data.error)
+      await navigator.clipboard.writeText(data.code)
+      setCopiedOrderId(order.u7buyOrderId ?? null)
+      window.setTimeout(() => setCopiedOrderId(null), 1800)
+    } catch {
+      setAuthError("Could not generate the Epic exchange code.")
+    }
+  }
 
   async function handleStatusChange(order: Entry, orderStatus: string) {
     const response = await fetch("/api/entries", {
@@ -58,13 +77,34 @@ export function PendingOrders({
     setAuthError("")
     setAuthLinkOrderId(order.u7buyOrderId)
     try {
-      const response = await fetch("/api/epic/generate", { method: "POST" })
+      const response = await fetch("/api/epic/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      })
       const data = await response.json()
-      if (!response.ok || !data.verification_uri_complete) throw new Error(data.error)
+      if (!response.ok || !data.verification_uri_complete || !data.device_code) throw new Error(data.error)
       await navigator.clipboard.writeText(data.verification_uri_complete)
       window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
       setCopiedOrderId(order.u7buyOrderId)
       window.setTimeout(() => setCopiedOrderId(null), 1800)
+
+      const interval = Math.max(Number(data.interval || 5), 3) * 1000
+      const deadline = Date.now() + 5 * 60 * 1000
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, interval))
+        const statusResponse = await fetch("/api/epic/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: order.id, deviceCode: data.device_code }),
+        })
+        const status = await statusResponse.json()
+        if (status.status === "completed") {
+          setEpicAccounts((current) => ({ ...current, [order.id]: status.displayName || "Epic account" }))
+          break
+        }
+        if (status.status === "error") throw new Error(status.error)
+      }
     } catch {
       setAuthError("Could not generate the Epic auth link.")
     } finally {
@@ -217,6 +257,12 @@ export function PendingOrders({
                 <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
                   Order {order.u7buyOrderId} · {order.date}
                 </p>
+                {epicAccounts[order.id] && (
+                  <p className="mt-2 text-xs font-bold uppercase tracking-wider text-primary">
+                    Epic: {epicAccounts[order.id]}
+                  </p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => handleGenerateLoginLink(order)}
@@ -228,6 +274,16 @@ export function PendingOrders({
                       ? "Epic link copied"
                       : "Generate Epic auth link"}
                 </button>
+                {epicAccounts[order.id] && (
+                  <button
+                    type="button"
+                    onClick={() => handleExchangeCode(order)}
+                    className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
+                  >
+                    {copiedOrderId === order.u7buyOrderId ? "Code copied" : "Generate exchange code"}
+                  </button>
+                )}
+                </div>
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                 <Clock3 className="size-3.5" aria-hidden="true" />

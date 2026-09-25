@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { headers } from "next/headers"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
+    const session = await auth.api.getSession({ headers: await headers() })
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    const { orderId } = await request.json()
+    if (!Number.isInteger(Number(orderId))) return NextResponse.json({ error: "Missing order ID" }, { status: 400 })
     const basicToken = process.env.EPIC_BASIC_TOKEN
     if (!basicToken) {
       return NextResponse.json({ error: "Epic authentication is not configured" }, { status: 500 })
