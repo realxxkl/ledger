@@ -201,7 +201,7 @@ export default function Page() {
                 </>
               )}
               {tab === "settings" && <SettingsPanel data={data} onChange={refresh} />}
-              {tab === "pending-orders" && <PendingOrders entries={data.entries} />}
+              {tab === "pending-orders" && <PendingOrders entries={data.entries} onChange={refresh} />}
             </div>
           )}
         </div>

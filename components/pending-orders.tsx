@@ -1,6 +1,7 @@
 "use client"
 
-import { Clock3, PackageCheck } from "lucide-react"
+import { FormEvent, useState } from "react"
+import { Clock3, PackageCheck, Plus } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
@@ -13,10 +14,50 @@ function statusTone(status: string) {
   return "border-border bg-muted/40 text-muted-foreground"
 }
 
-export function PendingOrders({ entries }: { entries: Entry[] }) {
+export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChange: () => void }) {
+  const [orderId, setOrderId] = useState("")
+  const [amount, setAmount] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState("")
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
   )
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const numericAmount = Number(amount)
+    if (!orderId.trim() || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setError("Enter an order ID and a positive amount.")
+      return
+    }
+
+    setIsSaving(true)
+    setError("")
+    try {
+      const response = await fetch("/api/entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          service: "Manual order",
+          platform: "Manual",
+          date: new Date().toISOString().slice(0, 10),
+          earned: numericAmount,
+          paid: 0,
+          profit: numericAmount,
+          orderStatus: "New Order Received",
+          u7buyOrderId: orderId.trim(),
+        }),
+      })
+      if (!response.ok) throw new Error("Unable to save order")
+      setOrderId("")
+      setAmount("")
+      onChange()
+    } catch {
+      setError("Could not create the order. Please try again.")
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <section className="border-2 border-border bg-card">
@@ -31,6 +72,45 @@ export function PendingOrders({ entries }: { entries: Entry[] }) {
           {orders.length} {orders.length === 1 ? "order" : "orders"}
         </span>
       </div>
+
+      <form onSubmit={handleSubmit} className="border-b-2 border-border bg-background/40 px-5 py-4">
+        <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
+          <Plus className="size-4" aria-hidden="true" />
+          Create new pending order
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_180px_auto] sm:items-end">
+          <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Order ID
+            <input
+              value={orderId}
+              onChange={(event) => setOrderId(event.target.value)}
+              placeholder="e.g. U7-1042"
+              className="h-10 border-2 border-border bg-card px-3 text-sm font-bold tracking-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Amount (USD)
+            <input
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              inputMode="decimal"
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="0.00"
+              className="h-10 border-2 border-border bg-card px-3 text-sm font-bold tracking-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="h-10 border-2 border-primary bg-primary px-4 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Add order"}
+          </button>
+        </div>
+        {error && <p className="mt-2 text-xs font-bold text-destructive">{error}</p>}
+      </form>
 
       {orders.length === 0 ? (
         <div className="flex flex-col items-center gap-3 px-5 py-14 text-center">
