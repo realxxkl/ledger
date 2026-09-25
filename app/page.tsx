@@ -206,6 +206,7 @@ export default function Page() {
                   entries={data.entries}
                   presets={data.servicePresets}
                   feeConfig={data.feeConfig}
+                  epicSessions={data.epicSessions}
                   onChange={refresh}
                 />
               )}
