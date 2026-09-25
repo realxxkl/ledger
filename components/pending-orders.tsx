@@ -5,7 +5,8 @@ import { Clock3, PackageCheck, Plus } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
-const COMPLETED_STATUSES = new Set(["Completed", "Cancelled", "Delivered"])
+const COMPLETED_STATUSES = new Set(["Completed", "Cancelled", "Delivered", "Refunded"])
+const ORDER_STATUS_OPTIONS = ["New Order Received", "Preparing", "Delivered", "Refunded"] as const
 
 function statusTone(status: string) {
   if (status === "Awaiting Delivery" || status === "To Receive") {
@@ -24,6 +25,15 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
   const orders = entries.filter(
     (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
   )
+
+  async function handleStatusChange(order: Entry, orderStatus: string) {
+    const response = await fetch("/api/entries", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: order.id, orderStatus }),
+    })
+    if (response.ok) onChange()
+  }
 
   async function handleGenerateLoginLink(order: Entry) {
     if (!order.u7buyOrderId) return
@@ -165,9 +175,21 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                 <Clock3 className="size-3.5" aria-hidden="true" />
-                <span className={`border px-2 py-1 font-bold ${statusTone(order.orderStatus || "")}`}>
-                  {order.orderStatus}
-                </span>
+                <label className="sr-only" htmlFor={`order-status-${order.id}`}>
+                  Status for order {order.u7buyOrderId}
+                </label>
+                <select
+                  id={`order-status-${order.id}`}
+                  value={order.orderStatus || "Preparing"}
+                  onChange={(event) => handleStatusChange(order, event.target.value)}
+                  className={`border px-2 py-1 font-bold uppercase tracking-wider outline-none ${statusTone(order.orderStatus || "")}`}
+                >
+                  {ORDER_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
               </div>
               <p className="text-right font-display text-lg font-black text-primary">{currency(order.earned)}</p>
             </article>
