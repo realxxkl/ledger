@@ -62,6 +62,7 @@ export const entries = pgTable("entries", {
   originalCurrency: text("original_currency"),
   orderStatus: text("order_status"),
   u7buyOrderId: text("u7buy_order_id"),
+  orderAmount: numeric("order_amount").notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 

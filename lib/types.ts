@@ -12,6 +12,7 @@ export type Entry = {
   originalCurrency?: string
   orderStatus?: string
   u7buyOrderId?: string
+  orderAmount?: number
 }
 
 export type Withdrawal = {
