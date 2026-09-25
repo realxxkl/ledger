@@ -18,6 +18,7 @@ function statusTone(status: string) {
 export function PendingOrders({
   entries,
   presets,
+  feeConfig,
   onChange,
 }: {
   entries: Entry[]
