@@ -99,6 +99,29 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
   const [name, setName] = useState("")
   const [cost, setCost] = useState("")
   const [currency, setCurrency] = useState<'usd' | 'egp'>('usd')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingName, setEditingName] = useState("")
+  const [editingCost, setEditingCost] = useState("")
+  const [editingCurrency, setEditingCurrency] = useState<'usd' | 'egp'>('usd')
+
+  const startEdit = (preset: (typeof data.servicePresets)[number]) => {
+    setEditingId(preset.id)
+    setEditingName(preset.name)
+    setEditingCost(String(preset.cost))
+    setEditingCurrency(preset.currency === 'egp' ? 'egp' : 'usd')
+  }
+
+  const saveEdit = async () => {
+    if (editingId === null || !editingName.trim()) return
+    await apiSend("/api/presets", "PUT", {
+      id: editingId,
+      name: editingName.trim(),
+      cost: Number(editingCost) || 0,
+      currency: editingCurrency,
+    })
+    setEditingId(null)
+    onChange()
+  }
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -143,20 +166,44 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
       ) : (
         <ul className="divide-y divide-border">
           {data.servicePresets.map((p) => (
-            <li key={p.id} className="flex items-center justify-between px-5 py-3 text-sm">
-              <span className="font-bold">{p.name}</span>
-              <div className="flex items-center gap-4">
-                <span className="text-muted-foreground">
-                  {p.cost.toFixed(2)} {p.currency?.toUpperCase() || 'USD'}
-                </span>
-                <button
-                  onClick={() => remove(p.id)}
-                  className="p-1.5 text-muted-foreground transition-colors hover:text-negative"
-                  aria-label={`Delete ${p.name} preset`}
-                >
-                  <Trash2 className="size-4" aria-hidden="true" />
-                </button>
-              </div>
+            <li key={p.id} className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
+              {editingId === p.id ? (
+                <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_120px_100px_auto_auto]">
+                  <input value={editingName} onChange={(e) => setEditingName(e.target.value)} className={inputCls} aria-label="Product name" />
+                  <input type="number" min="0" step="0.01" value={editingCost} onChange={(e) => setEditingCost(e.target.value)} className={inputCls} aria-label="Product cost" />
+                  <select value={editingCurrency} onChange={(e) => setEditingCurrency(e.target.value as 'usd' | 'egp')} className={inputCls} aria-label="Product currency">
+                    <option value="usd">USD</option>
+                    <option value="egp">EGP</option>
+                  </select>
+                  <button type="button" onClick={saveEdit} className={primaryBtn}>Save</button>
+                  <button type="button" onClick={() => setEditingId(null)} className={outlineBtn}>Cancel</button>
+                </div>
+              ) : (
+                <>
+                  <span className="font-bold">{p.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">
+                      {p.cost.toFixed(2)} {p.currency?.toUpperCase() || 'USD'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(p)}
+                      className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground transition-colors hover:text-primary"
+                      aria-label={`Edit ${p.name} preset`}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(p.id)}
+                      className="p-1.5 text-muted-foreground transition-colors hover:text-negative"
+                      aria-label={`Delete ${p.name} preset`}
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </>
+              )}
             </li>
           ))}
         </ul>

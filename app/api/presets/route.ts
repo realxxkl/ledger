@@ -22,6 +22,21 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PUT(req: NextRequest) {
+  try {
+    const b = await req.json()
+    const id = Number(b?.id)
+    const name = String(b?.name || "").trim()
+    if (!id || !name) return NextResponse.json({ error: "Missing preset details" }, { status: 400 })
+    const currency = (b?.currency === "egp" ? "egp" : "usd") as "usd" | "egp"
+    await db.update(presets).set({ name, cost: s(b.cost), currency }).where(eq(presets.id, id))
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    console.error("[v0] PUT /api/presets failed:", err)
+    return NextResponse.json({ error: "Failed to update preset" }, { status: 500 })
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const id = req.nextUrl.searchParams.get("id")
