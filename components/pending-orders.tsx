@@ -19,6 +19,7 @@ export function PendingOrders({
   entries,
   presets,
   feeConfig,
+  epicSessions,
   onChange,
 }: {
   entries: Entry[]
