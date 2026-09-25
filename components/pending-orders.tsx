@@ -15,7 +15,15 @@ function statusTone(status: string) {
   return "border-border bg-muted/40 text-muted-foreground"
 }
 
-export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChange: () => void }) {
+export function PendingOrders({
+  entries,
+  presets,
+  onChange,
+}: {
+  entries: Entry[]
+  presets: { id: string; name: string }[]
+  onChange: () => void
+}) {
   const [productName, setProductName] = useState("")
   const [orderId, setOrderId] = useState("")
   const [amount, setAmount] = useState("")
@@ -103,12 +111,18 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_180px_auto] sm:items-end">
           <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Product name
-            <input
+            <select
               value={productName}
               onChange={(event) => setProductName(event.target.value)}
-              placeholder="e.g. Premium Bundle"
-              className="h-10 border-2 border-border bg-card px-3 text-sm font-bold tracking-normal text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary"
-            />
+              className="h-10 border-2 border-border bg-card px-3 text-sm font-bold tracking-normal text-foreground outline-none focus:border-primary"
+            >
+              <option value="">Select a saved product</option>
+              {presets.map((preset) => (
+                <option key={preset.id} value={preset.name}>
+                  {preset.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Order ID
