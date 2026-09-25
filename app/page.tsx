@@ -12,8 +12,9 @@ import { SettingsPanel } from "@/components/settings-panel"
 import { FilterBar } from "@/components/filter-bar"
 import { MonthlyChart } from "@/components/monthly-chart"
 import { SignOutButton } from "@/components/sign-out-button"
+import { PendingOrders, pendingOrderCount } from "@/components/pending-orders"
 
-type Tab = "dashboard" | "withdrawals" | "settings"
+type Tab = "dashboard" | "withdrawals" | "settings" | "pending-orders"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
@@ -120,6 +121,16 @@ export default function Page() {
                 >
                   Fee settings &amp; backups
                 </button>
+                <button
+                  onClick={() => setTab("pending-orders")}
+                  className={`border-2 px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors ${
+                    tab === "pending-orders"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border text-foreground hover:border-primary hover:text-primary"
+                  }`}
+                >
+                  Pending orders{data ? ` (${pendingOrderCount(data.entries)})` : ""}
+                </button>
                 <SignOutButton />
               </div>
               <p className="text-xs uppercase tracking-wider text-muted-foreground" suppressHydrationWarning>
@@ -190,6 +201,7 @@ export default function Page() {
                 </>
               )}
               {tab === "settings" && <SettingsPanel data={data} onChange={refresh} />}
+              {tab === "pending-orders" && <PendingOrders entries={data.entries} />}
             </div>
           )}
         </div>
