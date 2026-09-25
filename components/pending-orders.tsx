@@ -104,7 +104,7 @@ export function PendingOrders({ entries, onChange }: { entries: Entry[]; onChang
           <button
             type="submit"
             disabled={isSaving}
-            className="h-10 border-2 border-primary bg-primary px-4 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-10 border-[2px] border-primary bg-primary px-4 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : "Add order"}
           </button>
