@@ -5,7 +5,7 @@ import { Clock3, PackageCheck, Plus } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
-const COMPLETED_STATUSES = new Set(["Completed", "Cancelled", "Delivered", "Refunded"])
+const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
 const ORDER_STATUS_OPTIONS = ["New Order Received", "Preparing", "Delivered", "Refunded"] as const
 
 function statusTone(status: string) {
@@ -47,7 +47,7 @@ export function PendingOrders({
   )
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const orders = entries.filter(
-    (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
+    (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus.trim().toLowerCase()),
   )
 
   async function handleExchangeCode(order: Entry) {
@@ -94,7 +94,11 @@ export function PendingOrders({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: order.id, orderStatus }),
     })
-    if (response.ok) onChange()
+    if (response.ok) {
+      onChange()
+    } else {
+      setError("Could not update the order status. Please try again.")
+    }
   }
 
   async function handleGenerateLoginLink(order: Entry) {
@@ -369,6 +373,6 @@ export function PendingOrders({
 
 export function pendingOrderCount(entries: Entry[]) {
   return entries.filter(
-    (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus),
+    (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus.trim().toLowerCase()),
   ).length
 }
