@@ -36,6 +36,20 @@ export async function saveEpicSession(input: {
     })
 }
 
+export async function updateEpicSessionTokens(orderId: number, input: {
+  accessToken: string
+  refreshToken?: string
+  expiresIn?: number
+}) {
+  const now = new Date()
+  await db.update(epicOrderSessions).set({
+    accessToken: input.accessToken,
+    refreshToken: input.refreshToken ?? null,
+    expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : null,
+    updatedAt: now,
+  }).where(eq(epicOrderSessions.orderId, orderId))
+}
+
 export async function getEpicSession(orderId: number) {
   const rows = await db.select().from(epicOrderSessions).where(eq(epicOrderSessions.orderId, orderId)).limit(1)
   return rows[0] ?? null
