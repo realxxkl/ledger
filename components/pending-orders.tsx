@@ -56,6 +56,15 @@ export function PendingOrders({
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
+  useEffect(() => {
+    const savedSessions = epicSessions ?? []
+    setEpicAccounts(Object.fromEntries(savedSessions.map((session) => [Number(session.orderId), session.displayName])))
+    setAuthLinks(Object.fromEntries(
+      savedSessions
+        .filter((session) => session.authLink && session.authLinkExpiresAt)
+        .map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }]),
+    ))
+  }, [epicSessions])
   const [authError, setAuthError] = useState("")
   const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>(
     () => Object.fromEntries((epicSessions ?? []).map((session) => [Number(session.orderId), session.displayName])),
