@@ -35,6 +35,7 @@ export function PendingOrders({
     tokenExpiresAt?: string
     authLink?: string
     authLinkExpiresAt?: string
+    authUserCode?: string
   }[]
   onChange: () => void
 }) {
@@ -51,11 +52,22 @@ export function PendingOrders({
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
+  const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
+  useEffect(() => {
+    const savedSessions = epicSessions ?? []
+    setEpicAccounts(Object.fromEntries(savedSessions.map((session) => [Number(session.orderId), session.displayName])))
+    setAuthUserCodes(Object.fromEntries(savedSessions.filter((session) => session.authUserCode).map((session) => [Number(session.orderId), session.authUserCode!])))
+    setAuthLinks(Object.fromEntries(
+      savedSessions
+        .filter((session) => session.authLink && session.authLinkExpiresAt)
+        .map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }]),
+    ))
+  }, [epicSessions])
   const [authError, setAuthError] = useState("")
   const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>(
     () => Object.fromEntries((epicSessions ?? []).map((session) => [Number(session.orderId), session.displayName])),
@@ -132,6 +144,7 @@ export function PendingOrders({
       const data = await response.json()
       if (!response.ok || !data.verification_uri_complete || !data.device_code) throw new Error(data.error)
       const expiresAt = Date.now() + Number(data.expires_in || 600) * 1000
+      setAuthUserCodes((current) => ({ ...current, [order.id]: data.user_code }))
       setAuthLinks((current) => ({ ...current, [order.id]: { url: data.verification_uri_complete, expiresAt } }))
       await navigator.clipboard.writeText(data.verification_uri_complete)
       window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
@@ -148,14 +161,19 @@ export function PendingOrders({
           body: JSON.stringify({ orderId: order.id, deviceCode: data.device_code }),
         })
         const status = await statusResponse.json()
+        if (status.status === "pending") continue
+        if (!statusResponse.ok || status.status === "error") {
+          throw new Error(status.error || "Epic authorization was not completed")
+        }
         if (status.status === "completed") {
           setEpicAccounts((current) => ({ ...current, [order.id]: status.displayName || "Epic account" }))
+          setAuthError("")
+          onChange()
           break
         }
-        if (status.status === "error") throw new Error(status.error)
       }
-    } catch {
-      setAuthError("Could not generate the Epic auth link.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not complete Epic authorization.")
     } finally {
       setAuthLinkOrderId(null)
     }
@@ -320,7 +338,15 @@ export function PendingOrders({
                   ) : null
                 })()}
                 <div className="mt-3 flex flex-col items-start gap-2">
-                  {(() => {
+                  {epicAccounts[order.id] ? (
+                    <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <span>Authenticated as {epicAccounts[order.id]}</span>
+                      {authUserCodes[order.id] && <span>User code: {authUserCodes[order.id]}</span>}
+                      <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary">
+                        Regenerate auth link
+                      </button>
+                    </div>
+                  ) : (() => {
                     const savedLink = authLinks[order.id]
                     const linkIsActive = Boolean(savedLink && savedLink.expiresAt > now)
                     return linkIsActive ? (

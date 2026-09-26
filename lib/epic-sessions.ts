@@ -50,13 +50,24 @@ export async function updateEpicSessionTokens(orderId: number, input: {
   }).where(eq(epicOrderSessions.orderId, orderId))
 }
 
-export async function saveEpicAuthLink(orderId: number, authLink: string, expiresIn?: number) {
+export async function saveEpicAuthLink(orderId: number, authLink: string, expiresIn?: number, userCode?: string) {
   const now = new Date()
-  await db.update(epicOrderSessions).set({
-    authLink,
-    authLinkExpiresAt: expiresIn ? new Date(now.getTime() + expiresIn * 1000) : null,
-    updatedAt: now,
-  }).where(eq(epicOrderSessions.orderId, orderId))
+  const authLinkExpiresAt = expiresIn ? new Date(now.getTime() + expiresIn * 1000) : null
+  await db
+    .insert(epicOrderSessions)
+    .values({
+      id: crypto.randomUUID(),
+      orderId,
+      authLink,
+      authLinkExpiresAt,
+      authUserCode: userCode,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: epicOrderSessions.orderId,
+      set: { authLink, authLinkExpiresAt, authUserCode: userCode, updatedAt: now },
+    })
 }
 
 export async function getEpicSession(orderId: number) {
