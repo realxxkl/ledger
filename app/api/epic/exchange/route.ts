@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { getEpicSession, updateEpicSessionTokens } from "@/lib/epic-sessions"
+import { clearEpicSession, getEpicSession, updateEpicSessionTokens } from "@/lib/epic-sessions"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 const EXCHANGE_URL = `${OAUTH_BASE}/exchange`
@@ -38,7 +38,17 @@ export async function POST(request: NextRequest) {
     let data = await response.json()
 
     if (!response.ok && account.refreshToken) {
-      const refreshed = await refreshEpicToken(account.refreshToken)
+      let refreshed
+      try {
+        refreshed = await refreshEpicToken(account.refreshToken)
+      } catch (refreshError) {
+        console.error("[v0] Epic refresh token rejected:", refreshError)
+        await clearEpicSession(Number(orderId))
+        return NextResponse.json(
+          { error: "Epic authentication expired. Generate a new Epic auth link for this order." },
+          { status: 409 },
+        )
+      }
       accessToken = refreshed.access_token
       await updateEpicSessionTokens(Number(orderId), {
         accessToken,
