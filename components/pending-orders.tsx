@@ -157,14 +157,18 @@ export function PendingOrders({
           body: JSON.stringify({ orderId: order.id, deviceCode: data.device_code }),
         })
         const status = await statusResponse.json()
+        if (!statusResponse.ok || status.status === "error") {
+          throw new Error(status.error || "Epic authorization was not completed")
+        }
         if (status.status === "completed") {
           setEpicAccounts((current) => ({ ...current, [order.id]: status.displayName || "Epic account" }))
+          setAuthError("")
+          onChange()
           break
         }
-        if (status.status === "error") throw new Error(status.error)
       }
-    } catch {
-      setAuthError("Could not generate the Epic auth link.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not complete Epic authorization.")
     } finally {
       setAuthLinkOrderId(null)
     }
