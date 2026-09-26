@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       accountId: tokenData.account_id,
       displayName: profileData.displayName || tokenData.displayName || "Epic account",
       accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
+      refreshToken: tokenData.refresh_token || undefined,
       expiresIn: tokenData.expires_in,
     })
     return NextResponse.json({ status: "completed", displayName: profileData.displayName || tokenData.displayName, accountId: tokenData.account_id })

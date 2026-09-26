@@ -59,14 +59,14 @@ export function PendingOrders({
         body: JSON.stringify({ orderId: order.id }),
       })
       const data = await response.json()
-      if (!response.ok || !data.code) throw new Error(data.error)
+      if (!response.ok || !data.code) throw new Error(data.error || "Epic exchange failed")
       const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Faccount`
       setExchangeLinks((current) => ({ ...current, [order.id]: link }))
       await navigator.clipboard.writeText(link)
       setCopiedOrderId(order.u7buyOrderId ?? null)
       window.setTimeout(() => setCopiedOrderId(null), 1800)
-    } catch {
-      setAuthError("Could not generate the Epic exchange code.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not generate the Epic exchange code.")
     }
   }
 
@@ -83,8 +83,8 @@ export function PendingOrders({
       const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Flogin%3Fclient_id%3D3f69e56c7649492c8cc29f1af08a8a12%26response_type%3Dcode%26display%3Dpopup%2520guided`
       setExchangeLinks((current) => ({ ...current, [order.id]: link }))
       window.open(link, "_blank", "noopener,noreferrer")
-    } catch {
-      setAuthError("Could not open Fortnite with a fresh Epic exchange link.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Could not open Fortnite with a fresh Epic exchange link.")
     }
   }
 
