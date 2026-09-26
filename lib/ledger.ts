@@ -24,7 +24,7 @@ export async function getLedger() {
     db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt)),
     db.select().from(feeConfig),
     presetRows.length === 0 ? db.select().from(presets) : Promise.resolve(presetRows),
-    db.select({ orderId: epicOrderSessions.orderId, displayName: epicOrderSessions.displayName, accountId: epicOrderSessions.accountId, authLink: epicOrderSessions.authLink, authLinkExpiresAt: epicOrderSessions.authLinkExpiresAt, refreshToken: epicOrderSessions.refreshToken, accessToken: epicOrderSessions.accessToken, updatedAt: epicOrderSessions.updatedAt, expiresAt: epicOrderSessions.expiresAt }).from(epicOrderSessions),
+    db.select({ orderId: epicOrderSessions.orderId, displayName: epicOrderSessions.displayName, accountId: epicOrderSessions.accountId, authLink: epicOrderSessions.authLink, authLinkExpiresAt: epicOrderSessions.authLinkExpiresAt, authUserCode: epicOrderSessions.authUserCode, refreshToken: epicOrderSessions.refreshToken, accessToken: epicOrderSessions.accessToken, updatedAt: epicOrderSessions.updatedAt, expiresAt: epicOrderSessions.expiresAt }).from(epicOrderSessions),
   ])
 
   const feeConfigObj: Record<string, { name: string; percent: number; flat: number }> = {}
@@ -65,6 +65,7 @@ export async function getLedger() {
       accountId: session.accountId || undefined,
       authLink: session.authLink || undefined,
       authLinkExpiresAt: session.authLinkExpiresAt?.toISOString(),
+      authUserCode: session.authUserCode || undefined,
       refreshTokenStored: Boolean(session.refreshToken),
       accessTokenStored: Boolean(session.accessToken),
       tokenUpdatedAt: session.updatedAt?.toISOString(),

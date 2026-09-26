@@ -58,6 +58,7 @@ export const epicOrderSessions = pgTable("epic_order_sessions", {
   expiresAt: timestamp("expires_at"),
   authLink: text("auth_link"),
   authLinkExpiresAt: timestamp("auth_link_expires_at"),
+  authUserCode: text("auth_user_code"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 })

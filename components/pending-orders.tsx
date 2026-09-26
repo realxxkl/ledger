@@ -35,6 +35,7 @@ export function PendingOrders({
     tokenExpiresAt?: string
     authLink?: string
     authLinkExpiresAt?: string
+    authUserCode?: string
   }[]
   onChange: () => void
 }) {
@@ -51,6 +52,7 @@ export function PendingOrders({
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
+  const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -59,6 +61,7 @@ export function PendingOrders({
   useEffect(() => {
     const savedSessions = epicSessions ?? []
     setEpicAccounts(Object.fromEntries(savedSessions.map((session) => [Number(session.orderId), session.displayName])))
+    setAuthUserCodes(Object.fromEntries(savedSessions.filter((session) => session.authUserCode).map((session) => [Number(session.orderId), session.authUserCode!])))
     setAuthLinks(Object.fromEntries(
       savedSessions
         .filter((session) => session.authLink && session.authLinkExpiresAt)
@@ -141,6 +144,7 @@ export function PendingOrders({
       const data = await response.json()
       if (!response.ok || !data.verification_uri_complete || !data.device_code) throw new Error(data.error)
       const expiresAt = Date.now() + Number(data.expires_in || 600) * 1000
+      setAuthUserCodes((current) => ({ ...current, [order.id]: data.user_code }))
       setAuthLinks((current) => ({ ...current, [order.id]: { url: data.verification_uri_complete, expiresAt } }))
       await navigator.clipboard.writeText(data.verification_uri_complete)
       window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
@@ -334,7 +338,15 @@ export function PendingOrders({
                   ) : null
                 })()}
                 <div className="mt-3 flex flex-col items-start gap-2">
-                  {(() => {
+                  {epicAccounts[order.id] ? (
+                    <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <span>Authenticated as {epicAccounts[order.id]}</span>
+                      {authUserCodes[order.id] && <span>User code: {authUserCodes[order.id]}</span>}
+                      <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary">
+                        Regenerate auth link
+                      </button>
+                    </div>
+                  ) : (() => {
                     const savedLink = authLinks[order.id]
                     const linkIsActive = Boolean(savedLink && savedLink.expiresAt > now)
                     return linkIsActive ? (
