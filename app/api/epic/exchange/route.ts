@@ -14,6 +14,15 @@ export async function POST(request: NextRequest) {
     const account = await getEpicSession(Number(orderId))
     if (!account?.accessToken) return NextResponse.json({ error: "No authenticated Epic account for this order" }, { status: 404 })
     let accessToken = account.accessToken
+    const shouldRefresh = Boolean(account.refreshToken && account.expiresAt && account.expiresAt.getTime() <= Date.now() + 30_000)
+    if (shouldRefresh && account.refreshToken) {
+      try {
+        const refreshed = await refreshEpicSession(Number(orderId), account.refreshToken)
+        accessToken = refreshed.accessToken
+      } catch (refreshError) {
+        console.error("[v0] Epic proactive refresh failed:", refreshError)
+      }
+    }
     let response = await fetch(EXCHANGE_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",

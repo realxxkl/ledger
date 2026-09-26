@@ -44,8 +44,8 @@ export async function updateEpicSessionTokens(orderId: number, input: {
   const now = new Date()
   await db.update(epicOrderSessions).set({
     accessToken: input.accessToken,
-    refreshToken: input.refreshToken ?? null,
-    expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : null,
+    refreshToken: input.refreshToken ?? undefined,
+    expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : undefined,
     updatedAt: now,
   }).where(eq(epicOrderSessions.orderId, orderId))
 }
