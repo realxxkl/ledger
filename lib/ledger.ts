@@ -63,6 +63,10 @@ export async function getLedger() {
       orderId: String(session.orderId),
       displayName: session.displayName || "Epic account",
       accountId: session.accountId || undefined,
+      refreshTokenStored: Boolean(session.refreshToken),
+      accessTokenStored: Boolean(session.accessToken),
+      tokenUpdatedAt: session.updatedAt?.toISOString(),
+      tokenExpiresAt: session.expiresAt?.toISOString(),
     })),
     servicePresets: finalPresets.map((p) => ({
       id: String(p.id),

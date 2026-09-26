@@ -43,7 +43,15 @@ export type LedgerData = {
   withdrawals: Withdrawal[]
   feeConfig: Record<string, FeeConfigEntry>
   servicePresets: ServicePreset[]
-  epicSessions?: { orderId: string; displayName: string; accountId?: string }[]
+  epicSessions?: {
+    orderId: string
+    displayName: string
+    accountId?: string
+    refreshTokenStored?: boolean
+    accessTokenStored?: boolean
+    tokenUpdatedAt?: string
+    tokenExpiresAt?: string
+  }[]
 }
 
 export const currency = (n: number) =>

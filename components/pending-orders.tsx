@@ -25,7 +25,15 @@ export function PendingOrders({
   entries: Entry[]
   presets: { id: string; name: string; cost: number }[]
   feeConfig: Record<string, { name: string; percent: number; flat: number }>
-  epicSessions?: { orderId: string; displayName: string; accountId?: string }[]
+  epicSessions?: {
+    orderId: string
+    displayName: string
+    accountId?: string
+    refreshTokenStored?: boolean
+    accessTokenStored?: boolean
+    tokenUpdatedAt?: string
+    tokenExpiresAt?: string
+  }[]
   onChange: () => void
 }) {
   const [productName, setProductName] = useState("")
@@ -291,6 +299,14 @@ export function PendingOrders({
                     Epic: {epicAccounts[order.id]}
                   </p>
                 )}
+                {(() => {
+                  const epicSession = epicSessions?.find((session) => Number(session.orderId) === order.id)
+                  return epicSession ? (
+                    <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      Refresh token: {epicSession.refreshTokenStored ? "stored" : "missing"} · Access token: {epicSession.accessTokenStored ? "stored" : "missing"}
+                    </p>
+                  ) : null
+                })()}
                 <div className="mt-3 flex flex-col items-start gap-2">
                   {!epicAccounts[order.id] && (
                     <button
