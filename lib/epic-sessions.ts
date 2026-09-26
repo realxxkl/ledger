@@ -29,8 +29,8 @@ export async function saveEpicSession(input: {
         accountId: input.accountId,
         displayName: input.displayName,
         accessToken: input.accessToken,
-        refreshToken: input.refreshToken ?? null,
-        expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : null,
+        refreshToken: input.refreshToken ?? undefined,
+        expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : undefined,
         updatedAt: now,
       },
     })

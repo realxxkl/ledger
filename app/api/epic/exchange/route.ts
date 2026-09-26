@@ -1,27 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { clearEpicSession, getEpicSession, updateEpicSessionTokens } from "@/lib/epic-sessions"
+import { clearEpicSession, getEpicSession } from "@/lib/epic-sessions"
+import { OAUTH_BASE, refreshEpicSession } from "@/lib/epic-refresh"
 
-const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 const EXCHANGE_URL = `${OAUTH_BASE}/exchange`
-
-async function refreshEpicToken(refreshToken: string) {
-  const basicToken = process.env.EPIC_BASIC_TOKEN
-  if (!basicToken) throw new Error("EPIC_BASIC_TOKEN is not configured")
-  const response = await fetch(`${OAUTH_BASE}/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basicToken}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
-    cache: "no-store",
-  })
-  const data = await response.json()
-  if (!response.ok || !data.access_token) throw new Error(data.errorMessage || data.error || "Epic refresh failed")
-  return data
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,9 +21,9 @@ export async function POST(request: NextRequest) {
     let data = await response.json()
 
     if (!response.ok && account.refreshToken) {
-      let refreshed
       try {
-        refreshed = await refreshEpicToken(account.refreshToken)
+        const refreshed = await refreshEpicSession(Number(orderId), account.refreshToken)
+        accessToken = refreshed.accessToken
       } catch (refreshError) {
         console.error("[v0] Epic refresh token rejected:", refreshError)
         await clearEpicSession(Number(orderId))
@@ -49,12 +32,6 @@ export async function POST(request: NextRequest) {
           { status: 409 },
         )
       }
-      accessToken = refreshed.access_token
-      await updateEpicSessionTokens(Number(orderId), {
-        accessToken,
-        refreshToken: refreshed.refresh_token ?? account.refreshToken,
-        expiresIn: refreshed.expires_in,
-      })
       response = await fetch(EXCHANGE_URL, {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: "no-store",
