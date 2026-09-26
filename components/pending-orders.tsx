@@ -157,6 +157,7 @@ export function PendingOrders({
           body: JSON.stringify({ orderId: order.id, deviceCode: data.device_code }),
         })
         const status = await statusResponse.json()
+        if (status.status === "pending") continue
         if (!statusResponse.ok || status.status === "error") {
           throw new Error(status.error || "Epic authorization was not completed")
         }

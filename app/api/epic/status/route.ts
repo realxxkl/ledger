@@ -25,7 +25,11 @@ export async function POST(request: NextRequest) {
     })
     const tokenData = await tokenResponse.json()
     if (!tokenResponse.ok) {
-      if (tokenData.errorCode === "errors.com.epicgames.account.oauth.authorization_pending") return NextResponse.json({ status: "pending" })
+      const errorCode = String(tokenData.errorCode || tokenData.error || "")
+      if (errorCode.includes("authorization_pending") || errorCode.includes("authorization_pending".replaceAll("_", "-"))) {
+        return NextResponse.json({ status: "pending" })
+      }
+      if (errorCode.includes("slow_down")) return NextResponse.json({ status: "pending" })
       return NextResponse.json({ status: "error", error: "Epic authorization was not completed" }, { status: 400 })
     }
 
