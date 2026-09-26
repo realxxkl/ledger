@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useState } from "react"
+import { FormEvent, useEffect, useState } from "react"
 import { Clock3, PackageCheck, Plus } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
@@ -33,6 +33,8 @@ export function PendingOrders({
     accessTokenStored?: boolean
     tokenUpdatedAt?: string
     tokenExpiresAt?: string
+    authLink?: string
+    authLinkExpiresAt?: string
   }[]
   onChange: () => void
 }) {
@@ -49,9 +51,17 @@ export function PendingOrders({
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
   const [authError, setAuthError] = useState("")
   const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>(
     () => Object.fromEntries((epicSessions ?? []).map((session) => [Number(session.orderId), session.displayName])),
+  )
+  const [authLinks, setAuthLinks] = useState<Record<number, { url: string; expiresAt: number }>>(
+    () => Object.fromEntries((epicSessions ?? []).filter((session) => session.authLink && session.authLinkExpiresAt).map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }])),
   )
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const orders = entries.filter(
@@ -121,6 +131,8 @@ export function PendingOrders({
       })
       const data = await response.json()
       if (!response.ok || !data.verification_uri_complete || !data.device_code) throw new Error(data.error)
+      const expiresAt = Date.now() + Number(data.expires_in || 600) * 1000
+      setAuthLinks((current) => ({ ...current, [order.id]: { url: data.verification_uri_complete, expiresAt } }))
       await navigator.clipboard.writeText(data.verification_uri_complete)
       window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
       setCopiedOrderId(order.u7buyOrderId)
@@ -308,15 +320,25 @@ export function PendingOrders({
                   ) : null
                 })()}
                 <div className="mt-3 flex flex-col items-start gap-2">
-                  {!epicAccounts[order.id] && (
-                    <button
-                      type="button"
-                      onClick={() => handleGenerateLoginLink(order)}
-                      className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
-                    >
-                      {authLinkOrderId === order.u7buyOrderId ? "Generating..." : "Generate Epic auth link"}
-                    </button>
-                  )}
+                  {(() => {
+                    const savedLink = authLinks[order.id]
+                    const linkIsActive = Boolean(savedLink && savedLink.expiresAt > now)
+                    return linkIsActive ? (
+                      <div className="flex w-full max-w-xl gap-2">
+                        <input readOnly value={savedLink.url} className="min-w-0 flex-1 border-2 border-border bg-background px-3 py-1.5 text-[10px] text-muted-foreground outline-none" aria-label={`Epic auth link for order ${order.u7buyOrderId}`} />
+                        <button type="button" onClick={async () => { await navigator.clipboard.writeText(savedLink.url); setCopiedOrderId(order.u7buyOrderId ?? null); window.setTimeout(() => setCopiedOrderId(null), 1800) }} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
+                          {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-start gap-1">
+                        {savedLink && <span className="text-[10px] font-bold uppercase tracking-wider text-destructive">Link expired, generate a new one</span>}
+                        <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
+                          {authLinkOrderId === order.u7buyOrderId ? "Generating..." : "Generate Epic auth link"}
+                        </button>
+                      </div>
+                    )
+                  })()}
                   {epicAccounts[order.id] && (
                     <>
                       <div className="flex w-full max-w-xl gap-2">

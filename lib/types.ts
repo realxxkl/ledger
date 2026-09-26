@@ -51,6 +51,8 @@ export type LedgerData = {
     accessTokenStored?: boolean
     tokenUpdatedAt?: string
     tokenExpiresAt?: string
+    authLink?: string
+    authLinkExpiresAt?: string
   }[]
 }
 
