@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/lib/auth"
 import { headers } from "next/headers"
+import { saveEpicAuthLink } from "@/lib/epic-sessions"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Epic device authorization failed" }, { status: 502 })
     }
 
+    await saveEpicAuthLink(Number(orderId), deviceData.verification_uri_complete, deviceData.expires_in)
     return NextResponse.json(deviceData)
   } catch (error) {
     console.error("[v0] Epic generate auth link failed:", error)
