@@ -10,12 +10,12 @@ export async function refreshEpicSession(orderId: number, refreshToken: string) 
 
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`epic-refresh:${orderId}`}))`)
-    const current = await tx.select({ accessToken: epicOrderSessions.accessToken, refreshToken: epicOrderSessions.refreshToken })
+    const current = await tx.select({ accessToken: epicOrderSessions.accessToken, refreshToken: epicOrderSessions.refreshToken, expiresAt: epicOrderSessions.expiresAt })
       .from(epicOrderSessions)
       .where(eq(epicOrderSessions.orderId, orderId))
       .limit(1)
     const stored = current[0]
-    if (stored?.refreshToken && stored.refreshToken !== refreshToken && stored.accessToken) {
+    if (stored?.refreshToken && stored.refreshToken !== refreshToken && stored.accessToken && stored.expiresAt && stored.expiresAt.getTime() > Date.now() + 30_000) {
       return { accessToken: stored.accessToken, refreshToken: stored.refreshToken, expiresIn: undefined }
     }
 

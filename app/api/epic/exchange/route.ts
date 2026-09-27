@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
     const { orderId } = await request.json()
     const account = await getEpicSession(Number(orderId))
     if (!account?.accessToken) return NextResponse.json({ error: "No authenticated Epic account for this order" }, { status: 404 })
+    // Every request to this route calls Epic's exchange endpoint, so the returned code is always fresh.
     let accessToken = account.accessToken
     const shouldRefresh = Boolean(account.refreshToken && account.expiresAt && account.expiresAt.getTime() <= Date.now() + 30_000)
     if (shouldRefresh && account.refreshToken) {
