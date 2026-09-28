@@ -24,9 +24,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid order ID" }, { status: 400 })
     }
 
-    const account = await getEpicSession(orderId)
+    let account = await getEpicSession(orderId)
     if (!account?.accessToken) {
       return NextResponse.json({ error: "No authenticated Epic account for this order" }, { status: 404 })
+    }
+
+    let accessToken = account.accessToken
+    const shouldRefresh = Boolean(
+      account.refreshToken &&
+      account.expiresAt &&
+      account.expiresAt.getTime() <= Date.now() + 30_000,
+    )
+
+    if (shouldRefresh && account.refreshToken) {
+      try {
+        const refreshed = await refreshEpicSession(orderId, account.refreshToken)
+        accessToken = refreshed.accessToken
+        account = {
+          ...account,
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          expiresAt: refreshed.expiresIn
+            ? new Date(Date.now() + refreshed.expiresIn * 1000)
+            : account.expiresAt,
+        }
+      } catch (error) {
+        console.error(`[Epic] Order ${orderId}: proactive refresh failed`, error instanceof Error ? error.message : error)
+      }
     }
 
     async function requestExchange(token: string) {
@@ -41,20 +65,18 @@ export async function POST(request: NextRequest) {
       return { response, data }
     }
 
-    let result = await requestExchange(account.accessToken)
+    let result = await requestExchange(accessToken)
     const tokenRejected = result.response.status === 401 || result.response.status === 403
 
-    if (tokenRejected) {
-      if (!account.refreshToken) {
-        return NextResponse.json({ error: "Epic access token expired and no refresh token is available. Re-authenticate this order.", requiresReauthentication: true }, { status: 409 })
-      }
+    if (tokenRejected && account.refreshToken) {
       try {
         console.log(`[Epic] Order ${orderId}: access token rejected, refreshing session`)
         const refreshed = await refreshEpicSession(orderId, account.refreshToken)
-        result = await requestExchange(refreshed.accessToken)
+        accessToken = refreshed.accessToken
+        result = await requestExchange(accessToken)
       } catch (refreshError) {
         console.error(`[Epic] Order ${orderId}: refresh failed`, refreshError instanceof Error ? refreshError.message : refreshError)
-        return NextResponse.json({ error: "Epic authentication has expired or been revoked. Re-authenticate this order.", requiresReauthentication: true }, { status: 409 })
+        return NextResponse.json({ error: "Epic access token expired and the saved refresh token could not be used. Re-authenticate this order.", requiresReauthentication: true }, { status: 409 })
       }
     }
 
