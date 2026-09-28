@@ -20,26 +20,33 @@ export async function refreshEpicSession(orderId: number, refreshToken: string) 
     }
 
     const response = await fetch(`${OAUTH_BASE}/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basicToken}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
-    cache: "no-store",
-  })
-  const data = await response.json()
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.errorMessage || data.error || "Epic refresh failed")
-  }
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basicToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
+      cache: "no-store",
+    })
+    const raw = await response.text()
+    let data: { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; errorMessage?: string; errorCode?: string } = {}
+    try { data = raw ? JSON.parse(raw) : {} } catch { /* Keep empty for non-JSON responses. */ }
+    if (!response.ok || !data.access_token) {
+      console.error(`[Epic] Refresh rejected for order ${orderId}`, { status: response.status, error: data.error, errorMessage: data.errorMessage, errorCode: data.errorCode })
+      const error = new Error(data.errorMessage || data.error || `Epic refresh failed with HTTP ${response.status}`)
+      Object.assign(error, { status: response.status, epicError: data.error, epicErrorCode: data.errorCode })
+      throw error
+    }
 
-  const nextRefreshToken = data.refresh_token || refreshToken
-  await tx.update(epicOrderSessions).set({
-    accessToken: data.access_token,
-    refreshToken: nextRefreshToken,
-    expiresAt: data.expires_in ? new Date(Date.now() + data.expires_in * 1000) : undefined,
-    updatedAt: new Date(),
-  }).where(eq(epicOrderSessions.orderId, orderId))
+    const nextRefreshToken = data.refresh_token || refreshToken
+    const expiresAt = typeof data.expires_in === "number" ? new Date(Date.now() + data.expires_in * 1000) : stored?.expiresAt
+    await tx.update(epicOrderSessions).set({
+      accessToken: data.access_token,
+      refreshToken: nextRefreshToken,
+      expiresAt,
+      updatedAt: new Date(),
+    }).where(eq(epicOrderSessions.orderId, orderId))
 
   return {
     accessToken: data.access_token as string,
