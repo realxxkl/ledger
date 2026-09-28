@@ -1,59 +1,47 @@
-import { eq, sql } from "drizzle-orm"
-import { db } from "@/lib/db"
-import { epicOrderSessions } from "@/lib/db/schema"
+import { acquireEpicRefreshLease, releaseEpicRefreshLease, updateEpicSessionTokens } from "@/lib/epic-sessions"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 
 export async function refreshEpicSession(orderId: number, refreshToken: string) {
-  const basicToken = process.env.EPIC_BASIC_TOKEN
-  if (!basicToken) throw new Error("EPIC_BASIC_TOKEN is not configured")
+  const leaseId = crypto.randomUUID()
+  let current = await acquireEpicRefreshLease(orderId, leaseId)
+  for (let attempt = 0; !current && attempt < 6; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)))
+    current = await acquireEpicRefreshLease(orderId, leaseId)
+  }
+  if (!current) throw new Error("Epic refresh is already in progress")
 
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`epic-refresh:${orderId}`}))`)
-    const current = await tx.select({ accessToken: epicOrderSessions.accessToken, refreshToken: epicOrderSessions.refreshToken, expiresAt: epicOrderSessions.expiresAt })
-      .from(epicOrderSessions)
-      .where(eq(epicOrderSessions.orderId, orderId))
-      .limit(1)
-    const stored = current[0]
-    if (stored?.refreshToken && stored.refreshToken !== refreshToken && stored.accessToken && stored.expiresAt && stored.expiresAt.getTime() > Date.now() + 30_000) {
-      return { accessToken: stored.accessToken, refreshToken: stored.refreshToken, expiresIn: undefined }
+  try {
+    if (current.refreshToken && current.refreshToken !== refreshToken && current.accessToken && current.expiresAt && current.expiresAt.getTime() > Date.now() + 30_000) {
+      return { accessToken: current.accessToken, refreshToken: current.refreshToken, expiresIn: undefined }
     }
+
+    const basicToken = process.env.EPIC_BASIC_TOKEN
+    if (!basicToken) throw new Error("EPIC_BASIC_TOKEN is not configured")
 
     const response = await fetch(`${OAUTH_BASE}/token`, {
       method: "POST",
-      headers: {
-        Authorization: `Basic ${basicToken}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
+      headers: { Authorization: `Basic ${basicToken}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken }),
       cache: "no-store",
     })
     const raw = await response.text()
     let data: { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; errorMessage?: string; errorCode?: string } = {}
-    try { data = raw ? JSON.parse(raw) : {} } catch { /* Keep empty for non-JSON responses. */ }
+    try { data = raw ? JSON.parse(raw) : {} } catch {}
     if (!response.ok || !data.access_token) {
-      console.error(`[Epic] Refresh rejected for order ${orderId}`, { status: response.status, error: data.error, errorMessage: data.errorMessage, errorCode: data.errorCode })
-      const error = new Error(data.errorMessage || data.error || `Epic refresh failed with HTTP ${response.status}`)
-      Object.assign(error, { status: response.status, epicError: data.error, epicErrorCode: data.errorCode })
-      throw error
+      console.error(`[Epic] Refresh rejected for order ${orderId}`, { status: response.status, error: data.error, errorCode: data.errorCode })
+      throw new Error(data.errorMessage || data.error || `Epic refresh failed with HTTP ${response.status}`)
     }
 
     const nextRefreshToken = data.refresh_token || refreshToken
-    const expiresAt = typeof data.expires_in === "number" ? new Date(Date.now() + data.expires_in * 1000) : stored?.expiresAt
-    await tx.update(epicOrderSessions).set({
+    await updateEpicSessionTokens(orderId, {
       accessToken: data.access_token,
       refreshToken: nextRefreshToken,
-      expiresAt,
-      updatedAt: new Date(),
-    }).where(eq(epicOrderSessions.orderId, orderId))
-
-  return {
-    accessToken: data.access_token as string,
-    refreshToken: nextRefreshToken as string,
-    expiresIn: data.expires_in as number | undefined,
+      expiresIn: data.expires_in,
+    })
+    return { accessToken: data.access_token, refreshToken: nextRefreshToken, expiresIn: data.expires_in }
+  } finally {
+    await releaseEpicRefreshLease(orderId, leaseId)
   }
-  })
 }
-
 export { OAUTH_BASE }

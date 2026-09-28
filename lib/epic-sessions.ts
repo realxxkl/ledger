@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { epicOrderSessions } from "@/lib/db/schema"
 
@@ -34,6 +34,20 @@ export async function saveEpicSession(input: {
         updatedAt: now,
       },
     })
+}
+
+export async function acquireEpicRefreshLease(orderId: number, leaseId: string, leaseMs = 30_000) {
+  const now = new Date()
+  const until = new Date(now.getTime() + leaseMs)
+  const rows = await db.update(epicOrderSessions).set({ refreshLockId: leaseId, refreshLockUntil: until, updatedAt: now })
+    .where(sql`order_id = ${orderId} AND (refresh_lock_until IS NULL OR refresh_lock_until < ${now})`)
+    .returning({ refreshToken: epicOrderSessions.refreshToken, accessToken: epicOrderSessions.accessToken, expiresAt: epicOrderSessions.expiresAt })
+  return rows[0] ?? null
+}
+
+export async function releaseEpicRefreshLease(orderId: number, leaseId: string) {
+  await db.update(epicOrderSessions).set({ refreshLockId: null, refreshLockUntil: null, updatedAt: new Date() })
+    .where(sql`order_id = ${orderId} AND refresh_lock_id = ${leaseId}`)
 }
 
 export async function updateEpicSessionTokens(orderId: number, input: {
