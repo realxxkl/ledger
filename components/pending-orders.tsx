@@ -356,9 +356,9 @@ export function PendingOrders({
                   <span aria-hidden="true">·</span>
                   <span>{order.date}</span>
                 </div>
-                {focusedOrderId && epicAccounts[Number(order.id)] && (
+                {focusedOrderId && (
                   <p className="mt-2 text-xs font-bold uppercase tracking-wider text-primary">
-                    Epic: {epicAccounts[Number(order.id)]}
+                    Epic: {epicAccounts[Number(order.id)] || "unauthenticated"}
                   </p>
                 )}
                 {(() => {
