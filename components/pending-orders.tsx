@@ -16,8 +16,13 @@ export function getOrderStatusGroup(status?: string) {
   return "In Progress"
 }
 
+export function getOrderStatusLabel(status: string | undefined, authenticated: boolean) {
+  const group = getOrderStatusGroup(status)
+  return group === "In Progress" && !authenticated ? "Unauthenticated" : group
+}
+
 function statusTone(status: string) {
-  if (status === "In Progress") return "border-primary bg-primary/10 text-primary"
+  if (status === "In Progress" || status === "Unauthenticated") return "border-primary bg-primary/10 text-primary"
   return "border-border bg-muted/40 text-muted-foreground"
 }
 
@@ -70,7 +75,7 @@ export function PendingOrders({
   }, [])
   useEffect(() => {
     const savedSessions = epicSessions ?? []
-    setEpicAccounts(Object.fromEntries(savedSessions.map((session) => [Number(session.orderId), session.displayName])))
+    setEpicAccounts(Object.fromEntries(savedSessions.filter((session) => session.accessTokenStored).map((session) => [Number(session.orderId), session.displayName])))
     setAuthUserCodes(Object.fromEntries(savedSessions.filter((session) => session.authUserCode).map((session) => [Number(session.orderId), session.authUserCode!])))
     setAuthLinks(Object.fromEntries(
       savedSessions
@@ -80,7 +85,7 @@ export function PendingOrders({
   }, [epicSessions])
   const [authError, setAuthError] = useState("")
   const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>(
-    () => Object.fromEntries((epicSessions ?? []).map((session) => [Number(session.orderId), session.displayName])),
+    () => Object.fromEntries((epicSessions ?? []).filter((session) => session.accessTokenStored).map((session) => [Number(session.orderId), session.displayName])),
   )
   const [authLinks, setAuthLinks] = useState<Record<number, { url: string; expiresAt: number }>>(
     () => Object.fromEntries((epicSessions ?? []).filter((session) => session.authLink && session.authLinkExpiresAt).map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }])),
@@ -356,11 +361,7 @@ export function PendingOrders({
                   <span aria-hidden="true">·</span>
                   <span>{order.date}</span>
                 </div>
-                {focusedOrderId && (
-                  <p className="mt-2 text-xs font-bold uppercase tracking-wider text-primary">
-                    Epic: {epicAccounts[Number(order.id)] || "unauthenticated"}
-                  </p>
-                )}
+
                 {(() => {
                   const epicSession = epicSessions?.find((session) => Number(session.orderId) === Number(order.id))
                   return focusedOrderId && epicSession ? (
@@ -458,7 +459,7 @@ export function PendingOrders({
                 </div>}
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                {focusedOrderId ? (
+                {focusedOrderId && (Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)) || getOrderStatusGroup(order.orderStatus) !== "In Progress") ? (
                   <>
                     <Clock3 className="size-3.5" aria-hidden="true" />
                     <label className="sr-only" htmlFor={`order-status-${order.id}`}>Status for order {order.u7buyOrderId}</label>
@@ -472,8 +473,8 @@ export function PendingOrders({
                     </select>
                   </>
                 ) : (
-                  <span className={`border px-2 py-1 font-bold uppercase tracking-wider ${statusTone(getOrderStatusGroup(order.orderStatus))}`}>
-                    {getOrderStatusGroup(order.orderStatus)}
+                  <span className={`border px-2 py-1 font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
+                    {getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
                   </span>
                 )}
               </div>
