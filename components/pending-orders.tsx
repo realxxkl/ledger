@@ -1,12 +1,13 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
-import { Clock3, PackageCheck, Plus } from "lucide-react"
+import Link from "next/link"
+import { Clock3, PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
 const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
-const ORDER_STATUS_OPTIONS = ["New Order Received", "Preparing", "Delivered", "Refunded"] as const
+const ORDER_STATUS_OPTIONS = ["New Order Received", "Preparing", "Delivered", "Completed", "Refunded"] as const
 
 function statusTone(status: string) {
   if (status === "Awaiting Delivery" || status === "To Receive") {
@@ -51,6 +52,7 @@ export function PendingOrders({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
   const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
@@ -76,9 +78,11 @@ export function PendingOrders({
     () => Object.fromEntries((epicSessions ?? []).filter((session) => session.authLink && session.authLinkExpiresAt).map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }])),
   )
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
-  const orders = entries.filter(
-    (entry) => entry.u7buyOrderId && entry.orderStatus && !COMPLETED_STATUSES.has(entry.orderStatus.trim().toLowerCase()),
-  )
+  const orders = entries.filter((entry) => {
+    if (!entry.u7buyOrderId) return false
+    const query = search.trim().toLowerCase()
+    return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
+  })
 
   async function handleExchangeCode(order: Entry) {
     setAuthError("")
@@ -91,7 +95,7 @@ export function PendingOrders({
       const data = await response.json()
       if (!response.ok || !data.code) throw new Error(data.error || "Epic exchange failed")
       const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Faccount`
-      setExchangeLinks((current) => ({ ...current, [order.id]: link }))
+      setExchangeLinks((current) => ({ ...current, [Number(order.id)]: link }))
       await navigator.clipboard.writeText(link)
       setCopiedOrderId(order.u7buyOrderId ?? null)
       window.setTimeout(() => setCopiedOrderId(null), 1800)
@@ -111,11 +115,22 @@ export function PendingOrders({
       const data = await response.json()
       if (!response.ok || !data.code) throw new Error(data.error)
       const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Flogin%3Fclient_id%3D3f69e56c7649492c8cc29f1af08a8a12%26response_type%3Dcode%26display%3Dpopup%2520guided`
-      setExchangeLinks((current) => ({ ...current, [order.id]: link }))
+      setExchangeLinks((current) => ({ ...current, [Number(order.id)]: link }))
       window.open(link, "_blank", "noopener,noreferrer")
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not open Fortnite with a fresh Epic exchange link.")
     }
+  }
+
+  async function handleDateChange(order: Entry, date: string) {
+    if (!date) return
+    const response = await fetch("/api/entries", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: order.id, date }),
+    })
+    if (response.ok) onChange()
+    else setError("Could not update the order date. Please try again.")
   }
 
   async function handleStatusChange(order: Entry, orderStatus: string) {
@@ -144,8 +159,8 @@ export function PendingOrders({
       const data = await response.json()
       if (!response.ok || !data.verification_uri_complete || !data.device_code) throw new Error(data.error)
       const expiresAt = Date.now() + Number(data.expires_in || 600) * 1000
-      setAuthUserCodes((current) => ({ ...current, [order.id]: data.user_code }))
-      setAuthLinks((current) => ({ ...current, [order.id]: { url: data.verification_uri_complete, expiresAt } }))
+      setAuthUserCodes((current) => ({ ...current, [Number(order.id)]: data.user_code }))
+      setAuthLinks((current) => ({ ...current, [Number(order.id)]: { url: data.verification_uri_complete, expiresAt } }))
       await navigator.clipboard.writeText(data.verification_uri_complete)
       window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
       setCopiedOrderId(order.u7buyOrderId)
@@ -166,7 +181,7 @@ export function PendingOrders({
           throw new Error(status.error || "Epic authorization was not completed")
         }
         if (status.status === "completed") {
-          setEpicAccounts((current) => ({ ...current, [order.id]: status.displayName || "Epic account" }))
+          setEpicAccounts((current) => ({ ...current, [Number(order.id)]: status.displayName || "Epic account" }))
           setAuthError("")
           onChange()
           break
@@ -225,7 +240,7 @@ export function PendingOrders({
         <div>
           <h2 className="font-display text-xl font-black uppercase tracking-tight">orders</h2>
           <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
-            orders that need attention
+            searchable order records
           </p>
         </div>
         <span className="border-2 border-primary px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
@@ -300,14 +315,20 @@ export function PendingOrders({
         {error && <p className="mt-2 text-xs font-bold text-destructive">{error}</p>}
       </form>
 
+      <div className="flex items-center gap-3 border-b-2 border-border px-5 py-3">
+        <Search className="size-4 text-muted-foreground" aria-hidden="true" />
+        <label className="sr-only" htmlFor="order-search">Search orders</label>
+        <input id="order-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, product, platform, or status" className="h-10 min-w-0 flex-1 border-2 border-border bg-background px-3 text-sm outline-none focus:border-primary" />
+      </div>
+
       {authError && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{authError}</p>}
 
       {orders.length === 0 ? (
         <div className="flex flex-col items-center gap-3 px-5 py-14 text-center">
           <PackageCheck className="size-8 text-primary" aria-hidden="true" />
-          <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">No pending orders</p>
+          <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{search ? "No matching orders" : "No orders yet"}</p>
           <p className="max-w-md text-xs leading-relaxed text-muted-foreground">
-            New U7Buy orders will appear here automatically when they arrive.
+            {search ? "Try another order ID, product, platform, or status." : "New U7Buy orders will appear here automatically when they arrive."}
           </p>
         </div>
       ) : (
@@ -316,21 +337,24 @@ export function PendingOrders({
             <article key={order.id} className="grid gap-4 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="truncate font-bold text-foreground">{order.service}</h3>
+                  <Link href={`/orders/${order.id}`} className="truncate font-bold text-foreground underline decoration-border underline-offset-4 hover:text-primary">{order.service}</Link>
                   <span className="border border-border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     {order.platform}
                   </span>
                 </div>
-                <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
-                  Order {order.u7buyOrderId} · {order.date}
-                </p>
-                {epicAccounts[order.id] && (
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
+                  <span>Order {order.u7buyOrderId}</span>
+                  <span aria-hidden="true">·</span>
+                  <label className="sr-only" htmlFor={`order-date-${order.id}`}>Date for order {order.u7buyOrderId}</label>
+                  <input id={`order-date-${order.id}`} type="date" value={order.date} onChange={(event) => handleDateChange(order, event.target.value)} className="border border-border bg-background px-2 py-1 text-xs text-foreground disabled:opacity-60" />
+                </div>
+                {epicAccounts[Number(order.id)] && (
                   <p className="mt-2 text-xs font-bold uppercase tracking-wider text-primary">
-                    Epic: {epicAccounts[order.id]}
+                    Epic: {epicAccounts[Number(order.id)]}
                   </p>
                 )}
                 {(() => {
-                  const epicSession = epicSessions?.find((session) => Number(session.orderId) === order.id)
+                  const epicSession = epicSessions?.find((session) => Number(session.orderId) === Number(order.id))
                   return epicSession ? (
                     <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                       Refresh token: {epicSession.refreshTokenStored ? "stored" : "missing"} · Access token: {epicSession.accessTokenStored ? "stored" : "missing"}
@@ -338,16 +362,19 @@ export function PendingOrders({
                   ) : null
                 })()}
                 <div className="mt-3 flex flex-col items-start gap-2">
-                  {epicAccounts[order.id] ? (
+                  {["completed", "delivered"].includes((order.orderStatus ?? "").toLowerCase()) ? (
+                    <p className="text-xs font-bold text-primary">Epic access has been revoked and purged.</p>
+                  ) : <>
+                  {epicAccounts[Number(order.id)] ? (
                     <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      <span>Authenticated as {epicAccounts[order.id]}</span>
-                      {authUserCodes[order.id] && <span>User code: {authUserCodes[order.id]}</span>}
+                      <span>Authenticated as {epicAccounts[Number(order.id)]}</span>
+                      {authUserCodes[Number(order.id)] && <span>User code: {authUserCodes[Number(order.id)]}</span>}
                       <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary">
                         Regenerate auth link
                       </button>
                     </div>
                   ) : (() => {
-                    const savedLink = authLinks[order.id]
+                    const savedLink = authLinks[Number(order.id)]
                     const linkIsActive = Boolean(savedLink && savedLink.expiresAt > now)
                     return linkIsActive ? (
                       <div className="flex w-full max-w-xl gap-2">
@@ -365,24 +392,24 @@ export function PendingOrders({
                       </div>
                     )
                   })()}
-                  {epicAccounts[order.id] && (
+                  {epicAccounts[Number(order.id)] && (
                     <>
                       <div className="flex w-full max-w-xl gap-2">
                         <input
                           readOnly
-                          value={exchangeLinks[order.id] || "Generate an exchange code link"}
+                          value={exchangeLinks[Number(order.id)] || "Generate an exchange code link"}
                           className="min-w-0 flex-1 border-2 border-border bg-background px-3 py-1.5 text-[10px] text-muted-foreground outline-none"
                           aria-label={`Epic exchange link for order ${order.u7buyOrderId}`}
                         />
                         <button
                           type="button"
                           onClick={async () => {
-                            if (!exchangeLinks[order.id]) return
-                            await navigator.clipboard.writeText(exchangeLinks[order.id])
+                            if (!exchangeLinks[Number(order.id)]) return
+                            await navigator.clipboard.writeText(exchangeLinks[Number(order.id)])
                             setCopiedOrderId(order.u7buyOrderId ?? null)
                             window.setTimeout(() => setCopiedOrderId(null), 1800)
                           }}
-                          disabled={!exchangeLinks[order.id]}
+                          disabled={!exchangeLinks[Number(order.id)]}
                           className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                         >
                           {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
@@ -406,6 +433,7 @@ export function PendingOrders({
                       </div>
                     </>
                   )}
+                  </>}
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">

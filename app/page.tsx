@@ -35,6 +35,9 @@ export default function Page() {
   useEffect(() => {
     const today = new Date().toLocaleDateString("en-CA") // YYYY-MM-DD in local time
     setRange({ from: today, to: today })
+    if (new URLSearchParams(window.location.search).get("tab") === "pending-orders") {
+      setTab("pending-orders")
+    }
   }, [])
 
   const salesRef = useRef<HTMLDivElement>(null)
