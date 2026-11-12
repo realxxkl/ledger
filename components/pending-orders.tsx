@@ -7,12 +7,17 @@ import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
 const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
-const ORDER_STATUS_OPTIONS = ["New Order Received", "Preparing", "Delivered", "Completed", "Refunded"] as const
+const ORDER_STATUS_OPTIONS = ["In Progress", "Completed", "Refunded"] as const
+
+export function getOrderStatusGroup(status?: string) {
+  const normalized = (status ?? "").trim().toLowerCase()
+  if (normalized === "refunded") return "Refunded"
+  if (normalized === "completed" || normalized === "delivered") return "Completed"
+  return "In Progress"
+}
 
 function statusTone(status: string) {
-  if (status === "Awaiting Delivery" || status === "To Receive") {
-    return "border-primary bg-primary/10 text-primary"
-  }
+  if (status === "In Progress") return "border-primary bg-primary/10 text-primary"
   return "border-border bg-muted/40 text-muted-foreground"
 }
 
@@ -55,6 +60,7 @@ export function PendingOrders({
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
   const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
@@ -80,10 +86,12 @@ export function PendingOrders({
     () => Object.fromEntries((epicSessions ?? []).filter((session) => session.authLink && session.authLinkExpiresAt).map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }])),
   )
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
+  const [fortniteLoginLinks, setFortniteLoginLinks] = useState<Record<number, string>>({})
   const orders = entries.filter((entry) => {
     if (!entry.u7buyOrderId) return false
     if (focusedOrderId) return entry.id === focusedOrderId
-    if (COMPLETED_STATUSES.has((entry.orderStatus ?? "").trim().toLowerCase())) return false
+    if ((entry.orderStatus ?? "").trim().toLowerCase() === "cancelled") return false
+    if (getOrderStatusGroup(entry.orderStatus) !== statusFilter) return false
     const query = search.trim().toLowerCase()
     return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
   })
@@ -108,7 +116,7 @@ export function PendingOrders({
     }
   }
 
-  async function handleOpenFortnite(order: Entry) {
+  async function handleCopyFortniteLoginLink(order: Entry) {
     setAuthError("")
     try {
       const response = await fetch("/api/epic/exchange", {
@@ -119,10 +127,12 @@ export function PendingOrders({
       const data = await response.json()
       if (!response.ok || !data.code) throw new Error(data.error)
       const link = `https://www.epicgames.com/id/exchange?exchangeCode=${encodeURIComponent(data.code)}&redirectUrl=https%3A%2F%2Fwww.epicgames.com%2Fid%2Flogin%3Fclient_id%3D3f69e56c7649492c8cc29f1af08a8a12%26response_type%3Dcode%26display%3Dpopup%2520guided`
-      setExchangeLinks((current) => ({ ...current, [Number(order.id)]: link }))
-      window.open(link, "_blank", "noopener,noreferrer")
+      setFortniteLoginLinks((current) => ({ ...current, [Number(order.id)]: link }))
+      await navigator.clipboard.writeText(link)
+      setCopiedOrderId(order.u7buyOrderId ?? null)
+      window.setTimeout(() => setCopiedOrderId(null), 1800)
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Could not open Fortnite with a fresh Epic exchange link.")
+      setAuthError(error instanceof Error ? error.message : "Could not generate the Fortnite login link.")
     }
   }
 
@@ -155,7 +165,6 @@ export function PendingOrders({
       setAuthUserCodes((current) => ({ ...current, [Number(order.id)]: data.user_code }))
       setAuthLinks((current) => ({ ...current, [Number(order.id)]: { url: data.verification_uri_complete, expiresAt } }))
       await navigator.clipboard.writeText(data.verification_uri_complete)
-      window.open(data.verification_uri_complete, "_blank", "noopener,noreferrer")
       setCopiedOrderId(order.u7buyOrderId)
       window.setTimeout(() => setCopiedOrderId(null), 1800)
 
@@ -309,7 +318,13 @@ export function PendingOrders({
         {error && <p className="mt-2 text-xs font-bold text-destructive">{error}</p>}
       </form>}
 
-      {!focusedOrderId && <div className="flex items-center gap-3 border-b-2 border-border px-5 py-3">
+      {!focusedOrderId && <div className="flex flex-wrap items-center gap-3 border-b-2 border-border px-5 py-3">
+        <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Sort by status
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as (typeof ORDER_STATUS_OPTIONS)[number])} className="h-10 border-2 border-border bg-background px-3 text-sm font-bold text-foreground outline-none focus:border-primary">
+            {ORDER_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </label>
         <Search className="size-4 text-muted-foreground" aria-hidden="true" />
         <label className="sr-only" htmlFor="order-search">Search orders</label>
         <input id="order-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, product, platform, or status" className="h-10 min-w-0 flex-1 border-2 border-border bg-background px-3 text-sm outline-none focus:border-primary" />
@@ -408,20 +423,33 @@ export function PendingOrders({
                           {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex w-full max-w-xl gap-2">
+                        <input
+                          readOnly
+                          value={fortniteLoginLinks[Number(order.id)] || "Generate a Fortnite login link"}
+                          className="min-w-0 flex-1 border-2 border-border bg-background px-3 py-1.5 text-[10px] text-muted-foreground outline-none"
+                          aria-label={`Fortnite login link for order ${order.u7buyOrderId}`}
+                        />
                         <button
                           type="button"
-                          onClick={() => handleExchangeCode(order)}
-                          className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
+                          onClick={async () => {
+                            if (!fortniteLoginLinks[Number(order.id)]) return
+                            await navigator.clipboard.writeText(fortniteLoginLinks[Number(order.id)])
+                            setCopiedOrderId(order.u7buyOrderId ?? null)
+                            window.setTimeout(() => setCopiedOrderId(null), 1800)
+                          }}
+                          disabled={!fortniteLoginLinks[Number(order.id)]}
+                          className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                         >
-                          Generate exchange code link
+                          {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenFortnite(order)}
-                          className="border-2 border-primary bg-primary px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90"
-                        >
-                          Open Fortnite
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => handleExchangeCode(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
+                          Generate &amp; copy exchange code link
+                        </button>
+                        <button type="button" onClick={() => handleCopyFortniteLoginLink(order)} className="border-2 border-primary bg-primary px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90">
+                          Generate &amp; copy Fortnite login link
                         </button>
                       </div>
                     </>
@@ -436,16 +464,16 @@ export function PendingOrders({
                     <label className="sr-only" htmlFor={`order-status-${order.id}`}>Status for order {order.u7buyOrderId}</label>
                     <select
                       id={`order-status-${order.id}`}
-                      value={order.orderStatus || "Preparing"}
+                      value={getOrderStatusGroup(order.orderStatus)}
                       onChange={(event) => handleStatusChange(order, event.target.value)}
-                      className={`border px-2 py-1 font-bold uppercase tracking-wider outline-none ${statusTone(order.orderStatus || "")}`}
+                      className={`border px-2 py-1 font-bold uppercase tracking-wider outline-none ${statusTone(getOrderStatusGroup(order.orderStatus))}`}
                     >
                       {ORDER_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
                   </>
                 ) : (
-                  <span className={`border px-2 py-1 font-bold uppercase tracking-wider ${statusTone(order.orderStatus || "")}`}>
-                    {order.orderStatus || "New Order Received"}
+                  <span className={`border px-2 py-1 font-bold uppercase tracking-wider ${statusTone(getOrderStatusGroup(order.orderStatus))}`}>
+                    {getOrderStatusGroup(order.orderStatus)}
                   </span>
                 )}
               </div>

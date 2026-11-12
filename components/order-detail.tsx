@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { useLedger } from "@/lib/use-ledger"
 import { currency } from "@/lib/types"
-import { PendingOrders } from "@/components/pending-orders"
+import { getOrderStatusGroup, PendingOrders } from "@/components/pending-orders"
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { data, isLoading, mutate } = useLedger()
@@ -50,7 +50,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <h2 className="mt-2 font-display text-3xl font-black uppercase tracking-tight">{order.service}</h2>
           <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">{order.platform} · Entry #{order.id}</p>
         </div>
-        <span className="border-2 border-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary">{order.orderStatus || "New Order Received"}</span>
+        <span className="border-2 border-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary">{getOrderStatusGroup(order.orderStatus)}</span>
       </header>
       <div className="grid gap-px bg-border sm:grid-cols-2">
         <div className="bg-card p-5">
