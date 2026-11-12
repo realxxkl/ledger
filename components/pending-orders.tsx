@@ -22,6 +22,7 @@ export function PendingOrders({
   feeConfig,
   epicSessions,
   onChange,
+  focusedOrderId,
 }: {
   entries: Entry[]
   presets: { id: string; name: string; cost: number }[]
@@ -39,6 +40,7 @@ export function PendingOrders({
     authUserCode?: string
   }[]
   onChange: () => void
+  focusedOrderId?: string
 }) {
   const [productName, setProductName] = useState("")
   const [platform, setPlatform] = useState("")
@@ -80,6 +82,8 @@ export function PendingOrders({
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const orders = entries.filter((entry) => {
     if (!entry.u7buyOrderId) return false
+    if (focusedOrderId) return entry.id === focusedOrderId
+    if (COMPLETED_STATUSES.has((entry.orderStatus ?? "").trim().toLowerCase())) return false
     const query = search.trim().toLowerCase()
     return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
   })
@@ -120,17 +124,6 @@ export function PendingOrders({
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not open Fortnite with a fresh Epic exchange link.")
     }
-  }
-
-  async function handleDateChange(order: Entry, date: string) {
-    if (!date) return
-    const response = await fetch("/api/entries", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: order.id, date }),
-    })
-    if (response.ok) onChange()
-    else setError("Could not update the order date. Please try again.")
   }
 
   async function handleStatusChange(order: Entry, orderStatus: string) {
@@ -236,19 +229,20 @@ export function PendingOrders({
 
   return (
     <section className="border-2 border-border bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border px-5 py-4">
-        <div>
-          <h2 className="font-display text-xl font-black uppercase tracking-tight">orders</h2>
-          <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
-            searchable order records
-          </p>
+      {!focusedOrderId && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-border px-5 py-4">
+          <div>
+            <h2 className="font-display text-xl font-black uppercase tracking-tight">orders</h2>
+            <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">active order fulfillment</p>
+          </div>
+          <span className="border-2 border-primary px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
+            {orders.length} {orders.length === 1 ? "order" : "orders"}
+          </span>
         </div>
-        <span className="border-2 border-primary px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
-          {orders.length} {orders.length === 1 ? "order" : "orders"}
-        </span>
-      </div>
+      )}
+      {focusedOrderId && <h3 className="border-b-2 border-border px-5 py-4 font-display text-lg font-black uppercase tracking-tight">Order fulfillment</h3>}
 
-      <form onSubmit={handleSubmit} className="border-b-2 border-border bg-background/40 px-5 py-4">
+      {!focusedOrderId && <form onSubmit={handleSubmit} className="border-b-2 border-border bg-background/40 px-5 py-4">
         <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-primary">
           <Plus className="size-4" aria-hidden="true" />
           add new order
@@ -313,13 +307,13 @@ export function PendingOrders({
           </button>
         </div>
         {error && <p className="mt-2 text-xs font-bold text-destructive">{error}</p>}
-      </form>
+      </form>}
 
-      <div className="flex items-center gap-3 border-b-2 border-border px-5 py-3">
+      {!focusedOrderId && <div className="flex items-center gap-3 border-b-2 border-border px-5 py-3">
         <Search className="size-4 text-muted-foreground" aria-hidden="true" />
         <label className="sr-only" htmlFor="order-search">Search orders</label>
         <input id="order-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, product, platform, or status" className="h-10 min-w-0 flex-1 border-2 border-border bg-background px-3 text-sm outline-none focus:border-primary" />
-      </div>
+      </div>}
 
       {authError && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{authError}</p>}
 
@@ -345,23 +339,22 @@ export function PendingOrders({
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                   <span>Order {order.u7buyOrderId}</span>
                   <span aria-hidden="true">·</span>
-                  <label className="sr-only" htmlFor={`order-date-${order.id}`}>Date for order {order.u7buyOrderId}</label>
-                  <input id={`order-date-${order.id}`} type="date" value={order.date} onChange={(event) => handleDateChange(order, event.target.value)} className="border border-border bg-background px-2 py-1 text-xs text-foreground disabled:opacity-60" />
+                  <span>{order.date}</span>
                 </div>
-                {epicAccounts[Number(order.id)] && (
+                {focusedOrderId && epicAccounts[Number(order.id)] && (
                   <p className="mt-2 text-xs font-bold uppercase tracking-wider text-primary">
                     Epic: {epicAccounts[Number(order.id)]}
                   </p>
                 )}
                 {(() => {
                   const epicSession = epicSessions?.find((session) => Number(session.orderId) === Number(order.id))
-                  return epicSession ? (
+                  return focusedOrderId && epicSession ? (
                     <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                       Refresh token: {epicSession.refreshTokenStored ? "stored" : "missing"} · Access token: {epicSession.accessTokenStored ? "stored" : "missing"}
                     </p>
                   ) : null
                 })()}
-                <div className="mt-3 flex flex-col items-start gap-2">
+                {focusedOrderId && <div className="mt-3 flex flex-col items-start gap-2">
                   {["completed", "delivered"].includes((order.orderStatus ?? "").toLowerCase()) ? (
                     <p className="text-xs font-bold text-primary">Epic access has been revoked and purged.</p>
                   ) : <>
@@ -434,25 +427,27 @@ export function PendingOrders({
                     </>
                   )}
                   </>}
-                </div>
+                </div>}
               </div>
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                <Clock3 className="size-3.5" aria-hidden="true" />
-                <label className="sr-only" htmlFor={`order-status-${order.id}`}>
-                  Status for order {order.u7buyOrderId}
-                </label>
-                <select
-                  id={`order-status-${order.id}`}
-                  value={order.orderStatus || "Preparing"}
-                  onChange={(event) => handleStatusChange(order, event.target.value)}
-                  className={`border px-2 py-1 font-bold uppercase tracking-wider outline-none ${statusTone(order.orderStatus || "")}`}
-                >
-                  {ORDER_STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
+                {focusedOrderId ? (
+                  <>
+                    <Clock3 className="size-3.5" aria-hidden="true" />
+                    <label className="sr-only" htmlFor={`order-status-${order.id}`}>Status for order {order.u7buyOrderId}</label>
+                    <select
+                      id={`order-status-${order.id}`}
+                      value={order.orderStatus || "Preparing"}
+                      onChange={(event) => handleStatusChange(order, event.target.value)}
+                      className={`border px-2 py-1 font-bold uppercase tracking-wider outline-none ${statusTone(order.orderStatus || "")}`}
+                    >
+                      {ORDER_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <span className={`border px-2 py-1 font-bold uppercase tracking-wider ${statusTone(order.orderStatus || "")}`}>
+                    {order.orderStatus || "New Order Received"}
+                  </span>
+                )}
               </div>
               <p className="text-right font-display text-lg font-black text-primary">{currency(order.earned)}</p>
             </article>

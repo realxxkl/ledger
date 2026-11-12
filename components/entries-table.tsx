@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { Trash2, X, Edit2, Check } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
@@ -101,7 +102,14 @@ export function EntriesTable({
               {rows.map((e) => (
                 <tr key={e.id} className="border-b border-border last:border-0 hover:bg-muted/40">
                   <td className="px-5 py-3 text-muted-foreground">{e.date}</td>
-                  <td className="px-5 py-3 font-bold">{e.service}</td>
+                  <td className="px-5 py-3 font-bold">
+                    {e.u7buyOrderId ? (
+                      <Link href={`/orders/${e.id}`} className="underline decoration-border underline-offset-4 transition-colors hover:text-primary">
+                        {e.service}
+                        <span className="sr-only"> — open order {e.u7buyOrderId}</span>
+                      </Link>
+                    ) : e.service}
+                  </td>
                   <td className="px-5 py-3 text-muted-foreground">{e.platform}</td>
                   <td className="px-5 py-3 text-right">{currency(e.earned)}</td>
                   <td className="px-5 py-3 text-right text-negative">{currency(e.feeAmt)}</td>

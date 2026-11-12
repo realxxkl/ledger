@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { useLedger } from "@/lib/use-ledger"
 import { currency } from "@/lib/types"
+import { PendingOrders } from "@/components/pending-orders"
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { data, isLoading, mutate } = useLedger()
@@ -74,6 +75,16 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <Metric label="Order cost" value={currency(order.orderCost ?? 0)} />
         <Metric label="Platform fee" value={currency(order.orderFee ?? 0)} />
         <Metric label="Profit" value={currency(order.profit)} />
+      </div>
+      <div className="border-t-2 border-border p-5">
+        <PendingOrders
+          entries={[order]}
+          presets={data.servicePresets}
+          feeConfig={data.feeConfig}
+          epicSessions={data.epicSessions}
+          focusedOrderId={order.id}
+          onChange={() => mutate()}
+        />
       </div>
     </section>
   )
