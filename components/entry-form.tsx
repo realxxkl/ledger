@@ -1,11 +1,10 @@
 "use client"
 
 import { useMemo, useState, useEffect } from "react"
-import { Plus } from "lucide-react"
+import { LoaderCircle, Plus } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
-import { LoadingScreen } from "@/components/loading-screen"
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -236,15 +235,15 @@ export function EntryForm({
 
       {error && <p className="text-sm uppercase tracking-wider text-negative">{error}</p>}
 
+      {exchangeRateLoading && <p className="inline-flex items-center gap-2 text-xs text-muted-foreground" role="status"><LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Checking the current exchange rate…</p>}
       <button
         type="submit"
         disabled={saving}
         className="flex items-center justify-center gap-2 border-2 border-primary bg-primary px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
       >
-        <Plus className="size-4" aria-hidden="true" />
+        {saving ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}
         {saving ? "Saving…" : "+ Add Sale"}
       </button>
-      {(saving || exchangeRateLoading) && <LoadingScreen message={saving ? "Saving sale and refreshing your ledger" : "Checking the current exchange rate"} overlay />}
     </form>
   )
 }

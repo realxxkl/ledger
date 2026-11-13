@@ -6,10 +6,13 @@ import { Check, LoaderCircle, PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-completion-dialog"
-import { LoadingScreen } from "@/components/loading-screen"
 
 const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
 const ORDER_STATUS_OPTIONS = ["In Progress", "Completed", "Refunded"] as const
+function formatRemainingTime(milliseconds: number) {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+}
 
 export function getOrderStatusGroup(status?: string) {
   const normalized = (status ?? "").trim().toLowerCase()
@@ -98,6 +101,8 @@ export function PendingOrders({
   const [exchangeBusyOrderId, setExchangeBusyOrderId] = useState<string | null>(null)
   const [fortniteBusyOrderId, setFortniteBusyOrderId] = useState<string | null>(null)
   const [generatingAuthLinkOrderId, setGeneratingAuthLinkOrderId] = useState<string | null>(null)
+  const activeAuthOrderIdRef = useRef<string | null>(null)
+  const [expiredAuthLinks, setExpiredAuthLinks] = useState<Record<number, boolean>>({})
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
@@ -114,9 +119,11 @@ export function PendingOrders({
     const savedSessions = epicSessions ?? []
     setEpicAccounts(Object.fromEntries(savedSessions.filter((session) => session.accessTokenStored).map((session) => [Number(session.orderId), session.displayName])))
     setAuthUserCodes(Object.fromEntries(savedSessions.filter((session) => session.authUserCode).map((session) => [Number(session.orderId), session.authUserCode!])))
+    const expiredSessions = savedSessions.filter((session) => session.authLink && session.authLinkExpiresAt && new Date(session.authLinkExpiresAt).getTime() <= Date.now())
+    setExpiredAuthLinks(Object.fromEntries(expiredSessions.map((session) => [Number(session.orderId), true])))
     setAuthLinks(Object.fromEntries(
       savedSessions
-        .filter((session) => session.authLink && session.authLinkExpiresAt)
+        .filter((session) => session.authLink && session.authLinkExpiresAt && new Date(session.authLinkExpiresAt).getTime() > Date.now())
         .map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }]),
     ))
   }, [epicSessions])
@@ -125,8 +132,18 @@ export function PendingOrders({
     () => Object.fromEntries((epicSessions ?? []).filter((session) => session.accessTokenStored).map((session) => [Number(session.orderId), session.displayName])),
   )
   const [authLinks, setAuthLinks] = useState<Record<number, { url: string; expiresAt: number }>>(
-    () => Object.fromEntries((epicSessions ?? []).filter((session) => session.authLink && session.authLinkExpiresAt).map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }])),
+    () => Object.fromEntries((epicSessions ?? []).filter((session) => session.authLink && session.authLinkExpiresAt && new Date(session.authLinkExpiresAt).getTime() > Date.now()).map((session) => [Number(session.orderId), { url: session.authLink!, expiresAt: new Date(session.authLinkExpiresAt!).getTime() }])),
   )
+  useEffect(() => {
+    const expiredIds = Object.entries(authLinks).filter(([, link]) => link.expiresAt <= now).map(([id]) => Number(id))
+    if (expiredIds.length === 0) return
+    setAuthLinks((current) => {
+      const next = { ...current }
+      expiredIds.forEach((id) => delete next[id])
+      return next
+    })
+    setExpiredAuthLinks((current) => ({ ...current, ...Object.fromEntries(expiredIds.map((id) => [id, true])) }))
+  }, [authLinks, now])
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const [fortniteLoginLinks, setFortniteLoginLinks] = useState<Record<number, string>>({})
   async function copyOrderLink(order: Entry, link: string) {
@@ -219,6 +236,11 @@ export function PendingOrders({
         const result = await response.json().catch(() => null)
         throw new Error(result?.error || "Could not update the order status. Please try again.")
       }
+      if (orderStatus === "Refunded" && activeAuthOrderIdRef.current === order.u7buyOrderId) {
+        activeAuthOrderIdRef.current = null
+        setAuthLinkOrderId(null)
+        setGeneratingAuthLinkOrderId(null)
+      }
       await onChange()
       if (orderStatus === "Completed") showCelebration(order.id, "completed")
     } catch (updateError) {
@@ -239,6 +261,7 @@ export function PendingOrders({
   async function handleGenerateLoginLink(order: Entry) {
     if (!order.u7buyOrderId) return
     setAuthError("")
+    activeAuthOrderIdRef.current = order.u7buyOrderId
     setAuthLinkOrderId(order.u7buyOrderId)
     setGeneratingAuthLinkOrderId(order.u7buyOrderId)
     try {
@@ -249,7 +272,9 @@ export function PendingOrders({
       })
       const data = await response.json()
       if (!response.ok || !data.verification_uri_complete || !data.device_code) throw new Error(data.error)
-      const expiresAt = Date.now() + Number(data.expires_in || 600) * 1000
+      const expiresInSeconds = Math.min(Math.max(Number(data.expires_in) || 300, 1), 300)
+      const expiresAt = Date.now() + expiresInSeconds * 1000
+      setExpiredAuthLinks((current) => ({ ...current, [Number(order.id)]: false }))
       setAuthUserCodes((current) => ({ ...current, [Number(order.id)]: data.user_code }))
       setAuthLinks((current) => ({ ...current, [Number(order.id)]: { url: data.verification_uri_complete, expiresAt } }))
       await navigator.clipboard.writeText(data.verification_uri_complete)
@@ -258,15 +283,16 @@ export function PendingOrders({
       setGeneratingAuthLinkOrderId(null)
 
       const interval = Math.max(Number(data.interval || 5), 3) * 1000
-      const deadline = Date.now() + 5 * 60 * 1000
-      while (Date.now() < deadline) {
+      while (Date.now() < expiresAt && activeAuthOrderIdRef.current === order.u7buyOrderId) {
         await new Promise((resolve) => window.setTimeout(resolve, interval))
+        if (activeAuthOrderIdRef.current !== order.u7buyOrderId) break
         const statusResponse = await fetch("/api/epic/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId: order.id, deviceCode: data.device_code }),
         })
         const status = await statusResponse.json()
+        if (activeAuthOrderIdRef.current !== order.u7buyOrderId) break
         if (status.status === "pending") continue
         if (!statusResponse.ok || status.status === "error") {
           throw new Error(status.error || "Epic authorization was not completed")
@@ -274,18 +300,38 @@ export function PendingOrders({
         if (status.status === "completed") {
           setEpicAccounts((current) => ({ ...current, [Number(order.id)]: status.displayName || "Epic account" }))
           setAuthError("")
+          activeAuthOrderIdRef.current = null
           setAuthLinkOrderId(null)
           setGeneratingAuthLinkOrderId(null)
+          setAuthLinks((current) => {
+            const next = { ...current }
+            delete next[Number(order.id)]
+            return next
+          })
           showCelebration(order.id, "account")
           await onChange()
           break
         }
       }
+      if (activeAuthOrderIdRef.current === order.u7buyOrderId) {
+        activeAuthOrderIdRef.current = null
+        setAuthLinkOrderId(null)
+        setGeneratingAuthLinkOrderId(null)
+        setAuthLinks((current) => {
+          const next = { ...current }
+          delete next[Number(order.id)]
+          return next
+        })
+        setExpiredAuthLinks((current) => ({ ...current, [Number(order.id)]: true }))
+      }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not complete Epic authorization.")
     } finally {
-      setAuthLinkOrderId(null)
-      setGeneratingAuthLinkOrderId(null)
+      if (activeAuthOrderIdRef.current === order.u7buyOrderId) {
+        activeAuthOrderIdRef.current = null
+        setAuthLinkOrderId(null)
+        setGeneratingAuthLinkOrderId(null)
+      }
     }
   }
 
@@ -405,7 +451,8 @@ export function PendingOrders({
             disabled={isSaving}
             className="h-10 border-[2px] border-primary bg-primary px-4 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isSaving ? "Saving..." : "Add order"}
+            {isSaving && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            {isSaving ? "Saving…" : "Add order"}
           </button>
         </div>
         {error && <p className="mt-2 text-xs font-bold text-destructive">{error}</p>}
@@ -458,14 +505,15 @@ export function PendingOrders({
                   </div>
                 )}
                 {focusedOrderId && <div className="mt-4 grid w-full max-w-2xl gap-3 border-l-2 border-primary/50 pl-4">
-                  {["completed", "delivered"].includes((order.orderStatus ?? "").toLowerCase()) ? (
-                    <p className="text-xs font-bold text-primary">Epic access has been revoked and purged.</p>
+                  {["completed", "delivered", "refunded"].includes((order.orderStatus ?? "").trim().toLowerCase()) ? (
+                    <p className="text-xs font-bold text-primary">{getOrderStatusGroup(order.orderStatus) === "Refunded" ? "Order refunded. Epic authorization is no longer needed." : "Epic access has been revoked and purged."}</p>
                   ) : <>
                   {epicAccounts[Number(order.id)] ? (
                     <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5 border border-primary/50 bg-primary/10 px-2 py-1 text-primary"><Check className="size-3" aria-hidden="true" />Authenticated as {epicAccounts[Number(order.id)]}</span>
                       {authUserCodes[Number(order.id)] && <span>User code: {authUserCodes[Number(order.id)]}</span>}
-                      <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary">
+                      <button type="button" disabled={generatingAuthLinkOrderId === order.u7buyOrderId} onClick={() => handleGenerateLoginLink(order)} className="inline-flex items-center gap-2 border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                        {generatingAuthLinkOrderId === order.u7buyOrderId && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                         Regenerate auth link
                       </button>
                     </div>
@@ -475,14 +523,19 @@ export function PendingOrders({
                     return linkIsActive ? (
                       <div className="flex w-full max-w-xl gap-2">
                         <input readOnly value={savedLink.url} className="min-w-0 flex-1 border-2 border-border bg-background px-3 py-1.5 text-[10px] text-muted-foreground outline-none" aria-label={`Epic auth link for order ${order.u7buyOrderId}`} />
-                        <button type="button" disabled={copyingOrderId === order.id} onClick={() => copyOrderLink(order, savedLink.url)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                        <button type="button" disabled={copyingOrderId === order.id} onClick={() => copyOrderLink(order, savedLink.url)} className="inline-flex items-center gap-2 border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                          {copyingOrderId === order.id && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
+                        <span className="self-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground" role="status" aria-live="polite">
+                          Expires in {formatRemainingTime(savedLink.expiresAt - now)}
+                        </span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1">
-                        {savedLink && <span className="text-[10px] font-bold uppercase tracking-wider text-destructive">Link expired, generate a new one</span>}
-                        <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
+                        {(expiredAuthLinks[Number(order.id)] || (savedLink && savedLink.expiresAt <= now)) && <span className="text-[10px] font-bold uppercase tracking-wider text-destructive">Link expired, generate a new one</span>}
+                        <button type="button" disabled={generatingAuthLinkOrderId === order.u7buyOrderId} onClick={() => handleGenerateLoginLink(order)} className="inline-flex items-center gap-2 border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                          {generatingAuthLinkOrderId === order.u7buyOrderId && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {generatingAuthLinkOrderId === order.u7buyOrderId ? "Generating…" : "Generate Epic auth link"}
                         </button>
                       </div>
@@ -503,6 +556,7 @@ export function PendingOrders({
                           disabled={!exchangeLinks[Number(order.id)] || copyingOrderId === order.id}
                           className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                         >
+                          {copyingOrderId === order.id && <LoaderCircle className="mr-1 inline size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
                       </div>
@@ -519,21 +573,24 @@ export function PendingOrders({
                           disabled={!fortniteLoginLinks[Number(order.id)] || copyingOrderId === order.id}
                           className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                         >
+                          {copyingOrderId === order.id && <LoaderCircle className="mr-1 inline size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button type="button" disabled={exchangeBusyOrderId === order.id} onClick={() => handleExchangeCode(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                          {exchangeBusyOrderId === order.id && <LoaderCircle className="mr-1 inline size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {exchangeBusyOrderId === order.id ? "Generating exchange link…" : "Generate & copy exchange code link"}
                         </button>
                         <button type="button" disabled={fortniteBusyOrderId === order.id} onClick={() => handleCopyFortniteLoginLink(order)} className="border-2 border-primary bg-primary px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60">
+                          {fortniteBusyOrderId === order.id && <LoaderCircle className="mr-1 inline size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {fortniteBusyOrderId === order.id ? "Generating login link…" : "Generate & copy Fortnite login link"}
                         </button>
                       </div>
                     </>
                   )}
                   </>}
-                  {authLinkOrderId === order.u7buyOrderId && (
+                  {getOrderStatusGroup(order.orderStatus) === "In Progress" && authLinkOrderId === order.u7buyOrderId && (
                     <p className="flex items-center gap-2 text-xs font-bold text-primary" role="status" aria-live="polite">
                       <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                       Waiting for Epic authorization. Complete the link to continue.
@@ -554,7 +611,9 @@ export function PendingOrders({
                       onClick={() => setCompletionConfirmOrder(order)}
                       className="border-2 border-primary bg-primary px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
                     >
-                      {updatingOrderId === order.id && updatingOrderStatus === "Completed" ? "Completing…" : "Mark as completed"}
+                        {updatingOrderId === order.id && updatingOrderStatus === "Completed" && <LoaderCircle className="mr-1 inline size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                        {updatingOrderId === order.id && updatingOrderStatus === "Completed" ? "Completing…" : "Mark as completed"}
+
                     </button>
                     <button
                       type="button"
@@ -562,6 +621,7 @@ export function PendingOrders({
                       onClick={() => handleStatusChange(order, "Refunded")}
                       className="border-2 border-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-destructive hover:text-destructive disabled:cursor-wait disabled:opacity-60"
                     >
+                      {updatingOrderId === order.id && updatingOrderStatus === "Refunded" && <LoaderCircle className="mr-1 inline size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                       {updatingOrderId === order.id && updatingOrderStatus === "Refunded" ? "Refunding…" : "Problems with order? Refunded"}
                     </button>
                   </div>
@@ -584,16 +644,6 @@ export function PendingOrders({
         onCancel={() => setCompletionConfirmOrder(null)}
         onConfirm={() => void confirmCompletion()}
       />
-      {isSaving && <LoadingScreen message="Saving the new order" overlay />}
-      {updatingOrderId && (
-        <LoadingScreen
-          message={updatingOrderStatus === "Completed" ? "Completing order and recording profit" : "Updating order status"}
-          overlay
-        />
-      )}
-      {exchangeBusyOrderId && <LoadingScreen message="Generating Epic exchange link" overlay />}
-      {fortniteBusyOrderId && <LoadingScreen message="Generating Fortnite login link" overlay />}
-      {generatingAuthLinkOrderId && <LoadingScreen message="Preparing Epic authorization link" overlay />}
     </section>
   )
 }

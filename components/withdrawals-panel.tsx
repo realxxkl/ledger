@@ -1,11 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Trash2 } from "lucide-react"
+import { LoaderCircle, Trash2 } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
-import { LoadingScreen } from "@/components/loading-screen"
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -115,7 +114,10 @@ export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChang
           disabled={saving}
           className="col-span-2 border-2 border-primary bg-primary px-4 py-2.5 text-sm font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50 lg:col-span-1"
         >
-          {saving ? "Saving…" : "Log Withdrawal"}
+          <span className="inline-flex items-center justify-center gap-2">
+            {saving && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+            {saving ? "Saving…" : "Log Withdrawal"}
+          </span>
         </button>
       </form>
 
@@ -144,14 +146,13 @@ export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChang
                   className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:opacity-50"
                   aria-label={`Delete withdrawal from ${w.platform}`}
                 >
-                  <Trash2 className="size-4" aria-hidden="true" />
+                  {busy === w.id ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
                 </button>
               </div>
             </li>
           ))}
         </ul>
       )}
-      {(saving || busy) && <LoadingScreen message={saving ? "Saving withdrawal and refreshing your ledger" : "Removing withdrawal"} overlay />}
     </div>
   )
 }

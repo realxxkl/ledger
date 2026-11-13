@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
+import { LoaderCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { authClient } from "@/lib/auth-client"
-import { LoadingScreen } from "@/components/loading-screen"
 
 export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
   const router = useRouter()
@@ -56,9 +56,9 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
       </label>
       {error && <p role="alert" className="text-sm text-negative">{error}</p>}
       <button disabled={pending} className="bg-primary px-5 py-3 text-sm font-black uppercase tracking-wider text-primary-foreground disabled:opacity-60">
+        {pending && <LoaderCircle className="mr-2 inline size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
         {pending ? "Please wait…" : mode === "setup" ? "Create owner account" : "Unlock ledger"}
       </button>
-      {pending && <LoadingScreen message={mode === "setup" ? "Creating owner account" : "Verifying credentials"} overlay />}
     </form>
   )
 }

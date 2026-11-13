@@ -2,11 +2,10 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
-import { Trash2, X, Edit2, Check } from "lucide-react"
+import { Trash2, X, Edit2, Check, LoaderCircle } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
-import { LoadingScreen } from "@/components/loading-screen"
 
 function monthLabel(month: string): string {
   const [y, m] = month.split("-").map(Number)
@@ -146,7 +145,7 @@ export function EntriesTable({
                           className="p-1 text-primary hover:text-primary/80"
                           aria-label="Save status"
                         >
-                          <Check className="size-3" aria-hidden="true" />
+                          {savingStatusId === e.id ? <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="size-3" aria-hidden="true" />}
                         </button>
                       </div>
                     ) : (
@@ -172,7 +171,7 @@ export function EntriesTable({
                       className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:opacity-50"
                       aria-label={`Delete ${e.service} entry`}
                     >
-                      <Trash2 className="size-4" aria-hidden="true" />
+                      {busy === e.id ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
                     </button>
                   </td>
                 </tr>
@@ -181,7 +180,6 @@ export function EntriesTable({
           </table>
         </div>
       )}
-      {(busy || savingStatusId) && <LoadingScreen message={savingStatusId ? "Saving status and refreshing your ledger" : "Deleting ledger entry"} overlay />}
     </div>
   )
 }

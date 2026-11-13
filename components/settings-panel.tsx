@@ -1,11 +1,10 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { Plus, Trash2, Download, Upload } from "lucide-react"
+import { Plus, Trash2, Download, Upload, LoaderCircle } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
-import { LoadingScreen } from "@/components/loading-screen"
 
 const inputCls =
   "w-full border-2 border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary"
@@ -52,7 +51,7 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
   }
 
   const remove = async (key: string) => {
-    setPendingAction("Removing platform fee")
+    setPendingAction(`Removing platform fee:${key}`)
     try {
       await apiSend(`/api/fees?key=${encodeURIComponent(key)}`, "DELETE")
       await onChange()
@@ -74,8 +73,8 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
         <input type="number" step="0.01" min="0" value={percent} onChange={(e) => setPercent(e.target.value)} placeholder="Percent %" className={inputCls} />
         <input type="number" step="0.01" min="0" value={flat} onChange={(e) => setFlat(e.target.value)} placeholder="Flat $" className={inputCls} />
         <button type="submit" disabled={pendingAction !== null} className={primaryBtn}>
-          <Plus className="size-4" aria-hidden="true" />
-          {pendingAction ? "Saving…" : "Save"}
+          {pendingAction === "Saving platform fees" ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}
+          {pendingAction === "Saving platform fees" ? "Saving…" : "Save"}
         </button>
       </form>
       {Object.keys(data.feeConfig).length === 0 ? (
@@ -97,14 +96,15 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
                   className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:cursor-wait disabled:opacity-50"
                   aria-label={`Delete ${cfg.name} fee`}
                 >
-                  <Trash2 className="size-4" aria-hidden="true" />
+                  {pendingAction === `Removing platform fee:${key}` ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
+
+
                 </button>
               </div>
             </li>
           ))}
         </ul>
       )}
-      {pendingAction && <LoadingScreen message={pendingAction} overlay />}
     </div>
   )
 }
@@ -159,7 +159,7 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
   }
 
   const remove = async (id: string) => {
-    setPendingAction("Removing service preset")
+    setPendingAction(`Removing service preset:${id}`)
     try {
       await apiSend(`/api/presets?id=${id}`, "DELETE")
       await onChange()
@@ -185,8 +185,8 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
           <option value="egp">EGP</option>
         </select>
         <button type="submit" disabled={pendingAction !== null} className={`${primaryBtn} col-span-4 justify-self-start`}>
-          <Plus className="size-4" aria-hidden="true" />
-          {pendingAction ? "Saving…" : "Add Preset"}
+          {(pendingAction === "Adding service preset" || pendingAction === "Saving service preset") ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}
+          {pendingAction === "Adding service preset" ? "Adding…" : pendingAction === "Saving service preset" ? "Saving…" : "Add Preset"}
         </button>
       </form>
       {data.servicePresets.length === 0 ? (
@@ -205,7 +205,11 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
                     <option value="usd">USD</option>
                     <option value="egp">EGP</option>
                   </select>
-                  <button type="button" disabled={pendingAction !== null} onClick={saveEdit} className={primaryBtn}>{pendingAction ? "Saving…" : "Save"}</button>
+                  <button type="button" disabled={pendingAction !== null} onClick={saveEdit} className={primaryBtn}>
+                    {pendingAction === "Saving service preset" && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                    {pendingAction ? "Saving…" : "Save"}
+                  </button>
+
                   <button type="button" disabled={pendingAction !== null} onClick={() => setEditingId(null)} className={outlineBtn}>Cancel</button>
                 </div>
               ) : (
@@ -230,7 +234,7 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
                       className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:cursor-wait disabled:opacity-50"
                       aria-label={`Delete ${p.name} preset`}
                     >
-                      <Trash2 className="size-4" aria-hidden="true" />
+                  {pendingAction === `Removing service preset:${p.id}` ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
                     </button>
                   </div>
                 </>
@@ -239,7 +243,6 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
           ))}
         </ul>
       )}
-      {pendingAction && <LoadingScreen message={pendingAction} overlay />}
     </div>
   )
 }
@@ -289,13 +292,12 @@ function BackupSection({ data, onChange }: { data: LedgerData; onChange: () => v
           Export
         </button>
         <button type="button" disabled={isImporting} className={outlineBtn} onClick={() => fileRef.current?.click()}>
-          <Upload className="size-4" aria-hidden="true" />
+          {isImporting ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />}
           {isImporting ? "Importing…" : "Import"}
         </button>
         <input ref={fileRef} type="file" accept="application/json" onChange={importData} className="hidden" />
         {status && <span className="text-xs uppercase tracking-wider text-muted-foreground">{status}</span>}
       </div>
-      {isImporting && <LoadingScreen message="Restoring backup and refreshing your ledger" overlay />}
     </div>
   )
 }
