@@ -13,6 +13,7 @@ import { FilterBar } from "@/components/filter-bar"
 import { MonthlyChart } from "@/components/monthly-chart"
 import { SignOutButton } from "@/components/sign-out-button"
 import { PendingOrders } from "@/components/pending-orders"
+import { LoadingScreen } from "@/components/loading-screen"
 
 type Tab = "dashboard" | "withdrawals" | "settings" | "pending-orders"
 
@@ -98,6 +99,10 @@ export default function Page() {
     return () => clearInterval(id)
   }, [])
 
+  if (isLoading && !data) {
+    return <LoadingScreen message="Connecting to your ledger records" />
+  }
+
   return (
     <main className="min-h-screen bg-background">
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -160,12 +165,6 @@ export default function Page() {
         </header>
 
         <div className="mt-8">
-          {isLoading && (
-            <p className="py-20 text-center text-sm uppercase tracking-wider text-muted-foreground">
-              Loading ledger…
-            </p>
-          )}
-
           {error && (
             <p className="py-20 text-center text-sm uppercase tracking-wider text-negative">
               Failed to load data. Check that the database is connected.

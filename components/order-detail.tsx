@@ -5,6 +5,7 @@ import { useState } from "react"
 import { useLedger } from "@/lib/use-ledger"
 import { currency } from "@/lib/types"
 import { getOrderStatusGroup, getOrderStatusLabel, PendingOrders } from "@/components/pending-orders"
+import { LoadingScreen } from "@/components/loading-screen"
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { data, isLoading, mutate } = useLedger()
@@ -37,7 +38,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     }
   }
 
-  if (isLoading || !data) return <p className="py-16 text-center text-sm uppercase tracking-wider text-muted-foreground">Loading order…</p>
+  if (isLoading || !data) return <LoadingScreen message="Loading order details" />
   if (!order) return (
     <section className="border-2 border-border bg-card p-6">
       <p className="font-bold uppercase tracking-wider">Order not found</p>

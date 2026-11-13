@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation"
 import { authClient } from "@/lib/auth-client"
+import { LoadingScreen } from "@/components/loading-screen"
 
 export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
   const router = useRouter()
@@ -17,19 +18,24 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
     setPending(true)
     setError("")
 
-    const result =
-      mode === "setup"
-        ? await authClient.signUp.email({ name: name.trim(), email: email.trim(), password })
-        : await authClient.signIn.email({ email: email.trim(), password })
+    try {
+      const result =
+        mode === "setup"
+          ? await authClient.signUp.email({ name: name.trim(), email: email.trim(), password })
+          : await authClient.signIn.email({ email: email.trim(), password })
 
-    if (result.error) {
-      setError(mode === "setup" ? "Owner setup could not be completed." : "Email or password is incorrect.")
+      if (result.error) {
+        setError(mode === "setup" ? "Owner setup could not be completed." : "Email or password is incorrect.")
+        return
+      }
+
+      router.push("/")
+      router.refresh()
+    } catch {
+      setError(mode === "setup" ? "Owner setup could not be completed." : "Sign-in could not be completed.")
+    } finally {
       setPending(false)
-      return
     }
-
-    router.push("/")
-    router.refresh()
   }
 
   return (
@@ -52,6 +58,7 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
       <button disabled={pending} className="bg-primary px-5 py-3 text-sm font-black uppercase tracking-wider text-primary-foreground disabled:opacity-60">
         {pending ? "Please wait…" : mode === "setup" ? "Create owner account" : "Unlock ledger"}
       </button>
+      {pending && <LoadingScreen message={mode === "setup" ? "Creating owner account" : "Verifying credentials"} overlay />}
     </form>
   )
 }
