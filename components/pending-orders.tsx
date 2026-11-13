@@ -1,8 +1,8 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { PackageCheck, Plus, Search } from "lucide-react"
+import { Check, PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
@@ -24,6 +24,29 @@ export function getOrderStatusLabel(status: string | undefined, authenticated: b
 function statusTone(status: string) {
   if (status === "In Progress" || status === "Unauthenticated") return "border-primary bg-primary/10 text-primary"
   return "border-border bg-muted/40 text-muted-foreground"
+}
+
+function orderProfit(order: Entry) {
+  const status = getOrderStatusGroup(order.orderStatus)
+  if (status === "In Progress") return (order.orderAmount ?? 0) - (order.orderCost ?? 0) - (order.orderFee ?? 0)
+  return status === "Refunded" ? 0 : order.profit
+}
+
+function AccountStoredCelebration() {
+  return (
+    <div className="account-stored-celebration" role="status" aria-live="polite">
+      <div className="account-stored-celebration__icon" aria-hidden="true"><Check className="size-4" /></div>
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-primary">Account connected</p>
+        <p className="mt-1 text-xs text-muted-foreground">Epic account stored securely for this order.</p>
+      </div>
+      <div className="account-stored-celebration__confetti" aria-hidden="true">
+        {Array.from({ length: 12 }, (_, index) => (
+          <span key={index} className="account-stored-celebration__particle" style={{ left: `${index * 8 + 4}%`, animationDelay: `${(index % 4) * 75}ms` }} />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export function PendingOrders({
@@ -65,6 +88,8 @@ export function PendingOrders({
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
+  const [celebrationOrderId, setCelebrationOrderId] = useState<string | null>(null)
+  const celebrationTimer = useRef<number | null>(null)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
@@ -72,7 +97,10 @@ export function PendingOrders({
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      if (celebrationTimer.current !== null) window.clearTimeout(celebrationTimer.current)
+    }
   }, [])
   useEffect(() => {
     const savedSessions = epicSessions ?? []
@@ -199,7 +227,10 @@ export function PendingOrders({
         if (status.status === "completed") {
           setEpicAccounts((current) => ({ ...current, [Number(order.id)]: status.displayName || "Epic account" }))
           setAuthError("")
-          onChange()
+          setCelebrationOrderId(order.id)
+          if (celebrationTimer.current !== null) window.clearTimeout(celebrationTimer.current)
+          celebrationTimer.current = window.setTimeout(() => setCelebrationOrderId(null), 2600)
+          await onChange()
           break
         }
       }
@@ -357,7 +388,7 @@ export function PendingOrders({
       ) : (
         <div className="divide-y-2 divide-border">
           {orders.map((order) => (
-            <article key={order.id} className="grid gap-4 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+            <article key={order.id} className={focusedOrderId ? "grid gap-5 px-5 py-5 md:grid-cols-[minmax(0,1fr)_minmax(280px,auto)] md:items-center" : "grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"}>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <Link href={`/orders/${order.id}`} className="truncate font-bold text-foreground underline decoration-border underline-offset-4 hover:text-primary">{order.service}</Link>
@@ -370,16 +401,8 @@ export function PendingOrders({
                   <span aria-hidden="true">·</span>
                   <span>{order.date}</span>
                 </div>
-
-                {(() => {
-                  const epicSession = epicSessions?.find((session) => Number(session.orderId) === Number(order.id))
-                  return focusedOrderId && epicSession ? (
-                    <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                      Refresh token: {epicSession.refreshTokenStored ? "stored" : "missing"} · Access token: {epicSession.accessTokenStored ? "stored" : "missing"}
-                    </p>
-                  ) : null
-                })()}
-                {focusedOrderId && <div className="mt-3 flex flex-col items-start gap-2">
+                {celebrationOrderId === order.id && <div className="mt-4"><AccountStoredCelebration /></div>}
+                {focusedOrderId && <div className="mt-4 grid w-full max-w-2xl gap-3 border-l-2 border-primary/50 pl-4">
                   {["completed", "delivered"].includes((order.orderStatus ?? "").toLowerCase()) ? (
                     <p className="text-xs font-bold text-primary">Epic access has been revoked and purged.</p>
                   ) : <>
@@ -467,12 +490,12 @@ export function PendingOrders({
                   </>}
                 </div>}
               </div>
-              <div className="flex flex-col items-end gap-3">
+              <div className="flex min-w-0 flex-col items-start gap-3 sm:items-end">
                 <span className={`border px-2 py-1 text-xs font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
                   {getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
                 </span>
                 {focusedOrderId && getOrderStatusGroup(order.orderStatus) === "In Progress" && (
-                  <div className="flex flex-wrap justify-end gap-2">
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
                     <button
                       type="button"
                       disabled={updatingOrderId === order.id}
@@ -491,9 +514,14 @@ export function PendingOrders({
                     </button>
                   </div>
                 )}
-                {focusedOrderId && error && <p role="alert" className="text-right text-xs font-bold text-destructive">{error}</p>}
+                {focusedOrderId && error && <p role="alert" className="text-left text-xs font-bold text-destructive sm:text-right">{error}</p>}
+                <div className="border-t border-border pt-3 sm:text-right">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    {getOrderStatusGroup(order.orderStatus) === "In Progress" ? "Profit to be made" : "Profit"}
+                  </p>
+                  <p className="mt-1 font-display text-xl font-black text-primary">{currency(orderProfit(order))}</p>
+                </div>
               </div>
-              <p className="text-right font-display text-lg font-black text-primary">{currency(order.earned)}</p>
             </article>
           ))}
         </div>
