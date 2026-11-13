@@ -2,9 +2,11 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { Check, PackageCheck, Plus, Search } from "lucide-react"
+import { Check, LoaderCircle, PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
+import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-completion-dialog"
+import { LoadingScreen } from "@/components/loading-screen"
 
 const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
 const ORDER_STATUS_OPTIONS = ["In Progress", "Completed", "Refunded"] as const
@@ -18,11 +20,11 @@ export function getOrderStatusGroup(status?: string) {
 
 export function getOrderStatusLabel(status: string | undefined, authenticated: boolean) {
   const group = getOrderStatusGroup(status)
-  return group === "In Progress" && !authenticated ? "Unauthenticated" : group
+  return group === "In Progress" ? (authenticated ? "Authenticated" : "Unauthenticated") : group
 }
 
 function statusTone(status: string) {
-  if (status === "In Progress" || status === "Unauthenticated") return "border-primary bg-primary/10 text-primary"
+  if (status === "In Progress" || status === "Unauthenticated" || status === "Authenticated") return "border-primary bg-primary/10 text-primary"
   return "border-border bg-muted/40 text-muted-foreground"
 }
 
@@ -32,13 +34,13 @@ function orderProfit(order: Entry) {
   return status === "Refunded" ? 0 : order.profit
 }
 
-function AccountStoredCelebration() {
+function OrderSuccessCelebration({ title, description }: { title: string; description: string }) {
   return (
     <div className="account-stored-celebration" role="status" aria-live="polite">
-      <div className="account-stored-celebration__icon" aria-hidden="true"><Check className="size-4" /></div>
+      <div className="account-stored-celebration__icon" aria-hidden="true"><Check className="account-stored-celebration__check size-4" /></div>
       <div>
-        <p className="text-xs font-black uppercase tracking-[0.16em] text-primary">Account connected</p>
-        <p className="mt-1 text-xs text-muted-foreground">Epic account stored securely for this order.</p>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-primary">{title}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       </div>
       <div className="account-stored-celebration__confetti" aria-hidden="true">
         {Array.from({ length: 12 }, (_, index) => (
@@ -86,10 +88,16 @@ export function PendingOrders({
     : 0
   const [isSaving, setIsSaving] = useState(false)
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
+  const [updatingOrderStatus, setUpdatingOrderStatus] = useState<"Completed" | "Refunded" | null>(null)
+  const [completionConfirmOrder, setCompletionConfirmOrder] = useState<Entry | null>(null)
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
-  const [celebrationOrderId, setCelebrationOrderId] = useState<string | null>(null)
+  const [copyingOrderId, setCopyingOrderId] = useState<string | null>(null)
+  const [celebration, setCelebration] = useState<{ orderId: string; type: "account" | "completed" } | null>(null)
   const celebrationTimer = useRef<number | null>(null)
+  const [exchangeBusyOrderId, setExchangeBusyOrderId] = useState<string | null>(null)
+  const [fortniteBusyOrderId, setFortniteBusyOrderId] = useState<string | null>(null)
+  const [generatingAuthLinkOrderId, setGeneratingAuthLinkOrderId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
   const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
@@ -121,6 +129,27 @@ export function PendingOrders({
   )
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const [fortniteLoginLinks, setFortniteLoginLinks] = useState<Record<number, string>>({})
+  async function copyOrderLink(order: Entry, link: string) {
+    if (!link) return
+    setCopyingOrderId(order.id)
+    setAuthError("")
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopiedOrderId(order.u7buyOrderId ?? null)
+      window.setTimeout(() => setCopiedOrderId(null), 1800)
+    } catch {
+      setAuthError("Could not copy the link. Check your browser clipboard permissions.")
+    } finally {
+      setCopyingOrderId(null)
+    }
+  }
+
+  function showCelebration(orderId: string, type: "account" | "completed") {
+    setCelebration({ orderId, type })
+    if (celebrationTimer.current !== null) window.clearTimeout(celebrationTimer.current)
+    celebrationTimer.current = window.setTimeout(() => setCelebration(null), 2600)
+  }
+
   const orders = entries.filter((entry) => {
     if (!entry.u7buyOrderId) return false
     if (focusedOrderId) return entry.id === focusedOrderId
@@ -132,6 +161,7 @@ export function PendingOrders({
 
   async function handleExchangeCode(order: Entry) {
     setAuthError("")
+    setExchangeBusyOrderId(order.id)
     try {
       const response = await fetch("/api/epic/exchange", {
         method: "POST",
@@ -147,11 +177,14 @@ export function PendingOrders({
       window.setTimeout(() => setCopiedOrderId(null), 1800)
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not generate the Epic exchange code.")
+    } finally {
+      setExchangeBusyOrderId(null)
     }
   }
 
   async function handleCopyFortniteLoginLink(order: Entry) {
     setAuthError("")
+    setFortniteBusyOrderId(order.id)
     try {
       const response = await fetch("/api/epic/exchange", {
         method: "POST",
@@ -167,11 +200,14 @@ export function PendingOrders({
       window.setTimeout(() => setCopiedOrderId(null), 1800)
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Could not generate the Fortnite login link.")
+    } finally {
+      setFortniteBusyOrderId(null)
     }
   }
 
   async function handleStatusChange(order: Entry, orderStatus: "Completed" | "Refunded") {
     setUpdatingOrderId(order.id)
+    setUpdatingOrderStatus(orderStatus)
     setError("")
     try {
       const response = await fetch("/api/entries", {
@@ -184,17 +220,27 @@ export function PendingOrders({
         throw new Error(result?.error || "Could not update the order status. Please try again.")
       }
       await onChange()
+      if (orderStatus === "Completed") showCelebration(order.id, "completed")
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Could not update the order status. Please try again.")
     } finally {
       setUpdatingOrderId(null)
+      setUpdatingOrderStatus(null)
     }
+  }
+
+  async function confirmCompletion() {
+    if (!completionConfirmOrder) return
+    const order = completionConfirmOrder
+    setCompletionConfirmOrder(null)
+    await handleStatusChange(order, "Completed")
   }
 
   async function handleGenerateLoginLink(order: Entry) {
     if (!order.u7buyOrderId) return
     setAuthError("")
     setAuthLinkOrderId(order.u7buyOrderId)
+    setGeneratingAuthLinkOrderId(order.u7buyOrderId)
     try {
       const response = await fetch("/api/epic/generate", {
         method: "POST",
@@ -209,6 +255,7 @@ export function PendingOrders({
       await navigator.clipboard.writeText(data.verification_uri_complete)
       setCopiedOrderId(order.u7buyOrderId)
       window.setTimeout(() => setCopiedOrderId(null), 1800)
+      setGeneratingAuthLinkOrderId(null)
 
       const interval = Math.max(Number(data.interval || 5), 3) * 1000
       const deadline = Date.now() + 5 * 60 * 1000
@@ -227,9 +274,9 @@ export function PendingOrders({
         if (status.status === "completed") {
           setEpicAccounts((current) => ({ ...current, [Number(order.id)]: status.displayName || "Epic account" }))
           setAuthError("")
-          setCelebrationOrderId(order.id)
-          if (celebrationTimer.current !== null) window.clearTimeout(celebrationTimer.current)
-          celebrationTimer.current = window.setTimeout(() => setCelebrationOrderId(null), 2600)
+          setAuthLinkOrderId(null)
+          setGeneratingAuthLinkOrderId(null)
+          showCelebration(order.id, "account")
           await onChange()
           break
         }
@@ -238,6 +285,7 @@ export function PendingOrders({
       setAuthError(error instanceof Error ? error.message : "Could not complete Epic authorization.")
     } finally {
       setAuthLinkOrderId(null)
+      setGeneratingAuthLinkOrderId(null)
     }
   }
 
@@ -273,7 +321,7 @@ export function PendingOrders({
       setProductName("")
       setOrderId("")
       setAmount("")
-      onChange()
+      await onChange()
     } catch {
       setError("Could not create the order. Please try again.")
     } finally {
@@ -401,14 +449,21 @@ export function PendingOrders({
                   <span aria-hidden="true">·</span>
                   <span>{order.date}</span>
                 </div>
-                {celebrationOrderId === order.id && <div className="mt-4"><AccountStoredCelebration /></div>}
+                {celebration?.orderId === order.id && (
+                  <div className="mt-4">
+                    <OrderSuccessCelebration
+                      title={celebration.type === "account" ? "Account authenticated" : "Order completed"}
+                      description={celebration.type === "account" ? "Epic account verified and securely stored for this order." : "Fulfillment is complete and the final profit is recorded."}
+                    />
+                  </div>
+                )}
                 {focusedOrderId && <div className="mt-4 grid w-full max-w-2xl gap-3 border-l-2 border-primary/50 pl-4">
                   {["completed", "delivered"].includes((order.orderStatus ?? "").toLowerCase()) ? (
                     <p className="text-xs font-bold text-primary">Epic access has been revoked and purged.</p>
                   ) : <>
                   {epicAccounts[Number(order.id)] ? (
                     <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      <span>Authenticated as {epicAccounts[Number(order.id)]}</span>
+                      <span className="inline-flex items-center gap-1.5 border border-primary/50 bg-primary/10 px-2 py-1 text-primary"><Check className="size-3" aria-hidden="true" />Authenticated as {epicAccounts[Number(order.id)]}</span>
                       {authUserCodes[Number(order.id)] && <span>User code: {authUserCodes[Number(order.id)]}</span>}
                       <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary">
                         Regenerate auth link
@@ -420,15 +475,15 @@ export function PendingOrders({
                     return linkIsActive ? (
                       <div className="flex w-full max-w-xl gap-2">
                         <input readOnly value={savedLink.url} className="min-w-0 flex-1 border-2 border-border bg-background px-3 py-1.5 text-[10px] text-muted-foreground outline-none" aria-label={`Epic auth link for order ${order.u7buyOrderId}`} />
-                        <button type="button" onClick={async () => { await navigator.clipboard.writeText(savedLink.url); setCopiedOrderId(order.u7buyOrderId ?? null); window.setTimeout(() => setCopiedOrderId(null), 1800) }} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
-                          {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
+                        <button type="button" disabled={copyingOrderId === order.id} onClick={() => copyOrderLink(order, savedLink.url)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                          {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1">
                         {savedLink && <span className="text-[10px] font-bold uppercase tracking-wider text-destructive">Link expired, generate a new one</span>}
                         <button type="button" onClick={() => handleGenerateLoginLink(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
-                          {authLinkOrderId === order.u7buyOrderId ? "Generating..." : "Generate Epic auth link"}
+                          {generatingAuthLinkOrderId === order.u7buyOrderId ? "Generating…" : "Generate Epic auth link"}
                         </button>
                       </div>
                     )
@@ -444,16 +499,11 @@ export function PendingOrders({
                         />
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (!exchangeLinks[Number(order.id)]) return
-                            await navigator.clipboard.writeText(exchangeLinks[Number(order.id)])
-                            setCopiedOrderId(order.u7buyOrderId ?? null)
-                            window.setTimeout(() => setCopiedOrderId(null), 1800)
-                          }}
-                          disabled={!exchangeLinks[Number(order.id)]}
+                          onClick={() => copyOrderLink(order, exchangeLinks[Number(order.id)])}
+                          disabled={!exchangeLinks[Number(order.id)] || copyingOrderId === order.id}
                           className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                         >
-                          {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
+                          {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
                       </div>
                       <div className="flex w-full max-w-xl gap-2">
@@ -465,44 +515,46 @@ export function PendingOrders({
                         />
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (!fortniteLoginLinks[Number(order.id)]) return
-                            await navigator.clipboard.writeText(fortniteLoginLinks[Number(order.id)])
-                            setCopiedOrderId(order.u7buyOrderId ?? null)
-                            window.setTimeout(() => setCopiedOrderId(null), 1800)
-                          }}
-                          disabled={!fortniteLoginLinks[Number(order.id)]}
+                          onClick={() => copyOrderLink(order, fortniteLoginLinks[Number(order.id)])}
+                          disabled={!fortniteLoginLinks[Number(order.id)] || copyingOrderId === order.id}
                           className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
                         >
-                          {copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
+                          {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" onClick={() => handleExchangeCode(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary">
-                          Generate &amp; copy exchange code link
+                        <button type="button" disabled={exchangeBusyOrderId === order.id} onClick={() => handleExchangeCode(order)} className="border-2 border-border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
+                          {exchangeBusyOrderId === order.id ? "Generating exchange link…" : "Generate & copy exchange code link"}
                         </button>
-                        <button type="button" onClick={() => handleCopyFortniteLoginLink(order)} className="border-2 border-primary bg-primary px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90">
-                          Generate &amp; copy Fortnite login link
+                        <button type="button" disabled={fortniteBusyOrderId === order.id} onClick={() => handleCopyFortniteLoginLink(order)} className="border-2 border-primary bg-primary px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60">
+                          {fortniteBusyOrderId === order.id ? "Generating login link…" : "Generate & copy Fortnite login link"}
                         </button>
                       </div>
                     </>
                   )}
                   </>}
+                  {authLinkOrderId === order.u7buyOrderId && (
+                    <p className="flex items-center gap-2 text-xs font-bold text-primary" role="status" aria-live="polite">
+                      <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      Waiting for Epic authorization. Complete the link to continue.
+                    </p>
+                  )}
                 </div>}
               </div>
               <div className="flex min-w-0 flex-col items-start gap-3 sm:items-end">
-                <span className={`border px-2 py-1 text-xs font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
-                  {getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
+                <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicAccounts[Number(order.id)] || epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
+                  {getOrderStatusLabel(order.orderStatus, Boolean(epicAccounts[Number(order.id)] || epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))) === "Authenticated" && <Check className="size-3" aria-hidden="true" />}
+                  {getOrderStatusLabel(order.orderStatus, Boolean(epicAccounts[Number(order.id)] || epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
                 </span>
                 {focusedOrderId && getOrderStatusGroup(order.orderStatus) === "In Progress" && (
                   <div className="flex flex-wrap gap-2 sm:justify-end">
                     <button
                       type="button"
                       disabled={updatingOrderId === order.id}
-                      onClick={() => handleStatusChange(order, "Completed")}
+                      onClick={() => setCompletionConfirmOrder(order)}
                       className="border-2 border-primary bg-primary px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
                     >
-                      {updatingOrderId === order.id ? "Updating…" : "Mark as completed"}
+                      {updatingOrderId === order.id && updatingOrderStatus === "Completed" ? "Completing…" : "Mark as completed"}
                     </button>
                     <button
                       type="button"
@@ -510,7 +562,7 @@ export function PendingOrders({
                       onClick={() => handleStatusChange(order, "Refunded")}
                       className="border-2 border-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-destructive hover:text-destructive disabled:cursor-wait disabled:opacity-60"
                     >
-                      Problems with order? Refunded
+                      {updatingOrderId === order.id && updatingOrderStatus === "Refunded" ? "Refunding…" : "Problems with order? Refunded"}
                     </button>
                   </div>
                 )}
@@ -526,6 +578,22 @@ export function PendingOrders({
           ))}
         </div>
       )}
+      <ConfirmOrderCompletionDialog
+        open={Boolean(completionConfirmOrder)}
+        orderLabel={completionConfirmOrder?.service ?? "this order"}
+        onCancel={() => setCompletionConfirmOrder(null)}
+        onConfirm={() => void confirmCompletion()}
+      />
+      {isSaving && <LoadingScreen message="Saving the new order" overlay />}
+      {updatingOrderId && (
+        <LoadingScreen
+          message={updatingOrderStatus === "Completed" ? "Completing order and recording profit" : "Updating order status"}
+          overlay
+        />
+      )}
+      {exchangeBusyOrderId && <LoadingScreen message="Generating Epic exchange link" overlay />}
+      {fortniteBusyOrderId && <LoadingScreen message="Generating Fortnite login link" overlay />}
+      {generatingAuthLinkOrderId && <LoadingScreen message="Preparing Epic authorization link" overlay />}
     </section>
   )
 }

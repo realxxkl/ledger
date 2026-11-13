@@ -26,6 +26,7 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
 
       if (result.error) {
         setError(mode === "setup" ? "Owner setup could not be completed." : "Email or password is incorrect.")
+        setPending(false)
         return
       }
 
@@ -33,7 +34,6 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
       router.refresh()
     } catch {
       setError(mode === "setup" ? "Owner setup could not be completed." : "Sign-in could not be completed.")
-    } finally {
       setPending(false)
     }
   }

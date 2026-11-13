@@ -6,6 +6,7 @@ import { Trash2, X, Edit2, Check } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
+import { LoadingScreen } from "@/components/loading-screen"
 
 function monthLabel(month: string): string {
   const [y, m] = month.split("-").map(Number)
@@ -20,21 +21,25 @@ export function EntriesTable({
   onClearFocus,
 }: {
   data: LedgerData
-  onChange: () => void
+  onChange: () => void | Promise<unknown>
   focusMonth?: string | null
   onClearFocus?: () => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [savingStatusId, setSavingStatusId] = useState<string | null>(null)
   const [editingStatus, setEditingStatus] = useState<string | null>(null)
   const [statusValue, setStatusValue] = useState<string>("")
 
   const saveStatus = async (id: string) => {
+    setSavingStatusId(id)
     try {
       await apiSend("/api/entries", "PATCH", { id: Number(id), orderStatus: statusValue })
       setEditingStatus(null)
-      onChange()
+      await onChange()
     } catch (err) {
       console.error("[v0] Failed to update status:", err)
+    } finally {
+      setSavingStatusId(null)
     }
   }
 
@@ -42,7 +47,7 @@ export function EntriesTable({
     setBusy(id)
     try {
       await apiSend(`/api/entries?id=${id}`, "DELETE")
-      onChange()
+      await onChange()
     } finally {
       setBusy(null)
     }
@@ -122,7 +127,12 @@ export function EntriesTable({
                     {currency(e.profit)}
                   </td>
                   <td className="px-5 py-3">
-                    {editingStatus === e.id ? (
+                    {e.u7buyOrderId ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">{e.orderStatus || "-"}</span>
+                        <Link href={`/orders/${e.id}`} className="text-[10px] font-bold uppercase tracking-wider text-primary underline underline-offset-2">Manage</Link>
+                      </div>
+                    ) : editingStatus === e.id ? (
                       <div className="flex items-center gap-1">
                         <input
                           type="text"
@@ -171,6 +181,7 @@ export function EntriesTable({
           </table>
         </div>
       )}
+      {(busy || savingStatusId) && <LoadingScreen message={savingStatusId ? "Saving status and refreshing your ledger" : "Deleting ledger entry"} overlay />}
     </div>
   )
 }

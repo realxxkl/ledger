@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
+import { LoadingScreen } from "@/components/loading-screen"
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -12,7 +13,7 @@ const inputCls =
   "w-full border-2 border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary"
 const labelCls = "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
 
-export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChange: () => void }) {
+export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChange: () => void | Promise<unknown> }) {
   const platformKeys = Object.keys(data.feeConfig)
   const [platform, setPlatform] = useState(platformKeys[0] ?? "")
   const [date, setDate] = useState(today())
@@ -35,7 +36,7 @@ export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChang
       setAmount("")
       setFee("")
       setDate(today())
-      onChange()
+      await onChange()
     } finally {
       setSaving(false)
     }
@@ -45,7 +46,7 @@ export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChang
     setBusy(id)
     try {
       await apiSend(`/api/withdrawals?id=${id}`, "DELETE")
-      onChange()
+      await onChange()
     } finally {
       setBusy(null)
     }
@@ -150,6 +151,7 @@ export function WithdrawalsPanel({ data, onChange }: { data: LedgerData; onChang
           ))}
         </ul>
       )}
+      {(saving || busy) && <LoadingScreen message={saving ? "Saving withdrawal and refreshing your ledger" : "Removing withdrawal"} overlay />}
     </div>
   )
 }

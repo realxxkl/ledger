@@ -109,6 +109,21 @@
   }
 }
 
+@keyframes account-check-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.35) rotate(-18deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.2) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
 @keyframes account-stored-confetti {
   0% {
     opacity: 0;
@@ -145,6 +160,11 @@
   color: var(--primary);
 }
 
+.account-stored-celebration__check {
+  transform-origin: center;
+  animation: account-check-pop 440ms cubic-bezier(0.2, 0.9, 0.2, 1.2) both;
+}
+
 .account-stored-celebration__confetti {
   position: absolute;
   inset: 0;
@@ -171,7 +191,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .account-stored-celebration,
-  .account-stored-celebration__particle {
+  .account-stored-celebration__particle,
+  .account-stored-celebration__check {
     animation: none;
   }
 }

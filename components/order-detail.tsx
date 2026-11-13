@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { Check } from "lucide-react"
 import { useState } from "react"
 import { useLedger } from "@/lib/use-ledger"
 import { currency } from "@/lib/types"
@@ -55,7 +56,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           <h2 className="mt-2 font-display text-3xl font-black uppercase tracking-tight">{order.service}</h2>
           <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">{order.platform} · Entry #{order.id}</p>
         </div>
-        <span className="border-2 border-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary">{getOrderStatusLabel(order.orderStatus, Boolean(data.epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}</span>
+        <span className="inline-flex items-center gap-2 border-2 border-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary">
+          {sessionExists && <Check className="size-3.5" aria-hidden="true" />}
+          {getOrderStatusLabel(order.orderStatus, Boolean(sessionExists))}
+        </span>
       </header>
       <div className="grid gap-px bg-border sm:grid-cols-2">
         <div className="bg-card p-5">
@@ -91,6 +95,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           onChange={() => mutate()}
         />
       </div>
+      {savingDate && <LoadingScreen message="Saving order date" overlay />}
     </section>
   )
 }

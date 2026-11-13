@@ -5,6 +5,7 @@ import { Plus } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
+import { LoadingScreen } from "@/components/loading-screen"
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -17,7 +18,7 @@ export function EntryForm({
   onDone,
 }: {
   data: LedgerData
-  onDone: () => void
+  onDone: () => void | Promise<unknown>
 }) {
   const presetNames = data.servicePresets
   const platformKeys = Object.keys(data.feeConfig)
@@ -112,7 +113,7 @@ export function EntryForm({
       setPaid("")
       setDate(today())
       setExchangeRate(null)
-      onDone()
+      await onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save")
     } finally {
@@ -243,6 +244,7 @@ export function EntryForm({
         <Plus className="size-4" aria-hidden="true" />
         {saving ? "Saving…" : "+ Add Sale"}
       </button>
+      {(saving || exchangeRateLoading) && <LoadingScreen message={saving ? "Saving sale and refreshing your ledger" : "Checking the current exchange rate"} overlay />}
     </form>
   )
 }
