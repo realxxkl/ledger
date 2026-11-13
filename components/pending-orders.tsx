@@ -97,6 +97,7 @@ export function PendingOrders({
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [copyingOrderId, setCopyingOrderId] = useState<string | null>(null)
   const [celebration, setCelebration] = useState<{ orderId: string; type: "account" | "completed" } | null>(null)
+  const [celebrationCollapsing, setCelebrationCollapsing] = useState(false)
   const celebrationTimer = useRef<number | null>(null)
   const [exchangeBusyOrderId, setExchangeBusyOrderId] = useState<string | null>(null)
   const [fortniteBusyOrderId, setFortniteBusyOrderId] = useState<string | null>(null)
@@ -105,7 +106,6 @@ export function PendingOrders({
   const [expiredAuthLinks, setExpiredAuthLinks] = useState<Record<number, boolean>>({})
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
-  const [authLinkOrderId, setAuthLinkOrderId] = useState<string | null>(null)
   const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -163,8 +163,16 @@ export function PendingOrders({
 
   function showCelebration(orderId: string, type: "account" | "completed") {
     setCelebration({ orderId, type })
+    setCelebrationCollapsing(false)
     if (celebrationTimer.current !== null) window.clearTimeout(celebrationTimer.current)
-    celebrationTimer.current = window.setTimeout(() => setCelebration(null), 2600)
+    celebrationTimer.current = window.setTimeout(() => {
+      setCelebrationCollapsing(true)
+      celebrationTimer.current = window.setTimeout(() => {
+        setCelebration(null)
+        setCelebrationCollapsing(false)
+        celebrationTimer.current = null
+      }, 360)
+    }, 2600)
   }
 
   const orders = entries.filter((entry) => {
@@ -238,7 +246,6 @@ export function PendingOrders({
       }
       if (orderStatus === "Refunded" && activeAuthOrderIdRef.current === order.u7buyOrderId) {
         activeAuthOrderIdRef.current = null
-        setAuthLinkOrderId(null)
         setGeneratingAuthLinkOrderId(null)
       }
       await onChange()
@@ -262,7 +269,6 @@ export function PendingOrders({
     if (!order.u7buyOrderId) return
     setAuthError("")
     activeAuthOrderIdRef.current = order.u7buyOrderId
-    setAuthLinkOrderId(order.u7buyOrderId)
     setGeneratingAuthLinkOrderId(order.u7buyOrderId)
     try {
       const response = await fetch("/api/epic/generate", {
@@ -301,7 +307,6 @@ export function PendingOrders({
           setEpicAccounts((current) => ({ ...current, [Number(order.id)]: status.displayName || "Epic account" }))
           setAuthError("")
           activeAuthOrderIdRef.current = null
-          setAuthLinkOrderId(null)
           setGeneratingAuthLinkOrderId(null)
           setAuthLinks((current) => {
             const next = { ...current }
@@ -315,7 +320,6 @@ export function PendingOrders({
       }
       if (activeAuthOrderIdRef.current === order.u7buyOrderId) {
         activeAuthOrderIdRef.current = null
-        setAuthLinkOrderId(null)
         setGeneratingAuthLinkOrderId(null)
         setAuthLinks((current) => {
           const next = { ...current }
@@ -329,7 +333,6 @@ export function PendingOrders({
     } finally {
       if (activeAuthOrderIdRef.current === order.u7buyOrderId) {
         activeAuthOrderIdRef.current = null
-        setAuthLinkOrderId(null)
         setGeneratingAuthLinkOrderId(null)
       }
     }
@@ -497,11 +500,13 @@ export function PendingOrders({
                   <span>{order.date}</span>
                 </div>
                 {celebration?.orderId === order.id && (
-                  <div className="mt-4">
-                    <OrderSuccessCelebration
-                      title={celebration.type === "account" ? "Account authenticated" : "Order completed"}
-                      description={celebration.type === "account" ? "Epic account verified and securely stored for this order." : "Fulfillment is complete and the final profit is recorded."}
-                    />
+                  <div className={`mt-4 grid overflow-hidden transition-[grid-template-rows,margin,opacity] duration-300 ease-in motion-reduce:transition-none ${celebrationCollapsing ? "mt-0 grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]"}`} aria-hidden={celebrationCollapsing || undefined}>
+                    <div className="min-h-0 overflow-hidden">
+                      <OrderSuccessCelebration
+                        title={celebration.type === "account" ? "Account authenticated" : "Order completed"}
+                        description={celebration.type === "account" ? "Epic account verified and securely stored for this order." : "Fulfillment is complete and the final profit is recorded."}
+                      />
+                    </div>
                   </div>
                 )}
                 {focusedOrderId && <div className="mt-4 grid w-full max-w-2xl gap-3 border-l-2 border-primary/50 pl-4">
@@ -527,9 +532,6 @@ export function PendingOrders({
                           {copyingOrderId === order.id && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                           {copyingOrderId === order.id ? "Copying…" : copiedOrderId === order.u7buyOrderId ? "Copied" : "Copy"}
                         </button>
-                        <span className="self-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground" role="status" aria-live="polite">
-                          Expires in {formatRemainingTime(savedLink.expiresAt - now)}
-                        </span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1">
@@ -590,11 +592,14 @@ export function PendingOrders({
                     </>
                   )}
                   </>}
-                  {getOrderStatusGroup(order.orderStatus) === "In Progress" && authLinkOrderId === order.u7buyOrderId && (
-                    <p className="flex items-center gap-2 text-xs font-bold text-primary" role="status" aria-live="polite">
+                  {getOrderStatusGroup(order.orderStatus) === "In Progress" && !epicAccounts[Number(order.id)] && authLinks[Number(order.id)] && authLinks[Number(order.id)].expiresAt > now && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-primary">
                       <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                      Waiting for Epic authorization. Complete the link to continue.
-                    </p>
+                      <span role="status" aria-live="polite">Waiting for Epic authorization. Complete the link to continue.</span>
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground" aria-live="off">
+                        Expires in {formatRemainingTime(authLinks[Number(order.id)].expiresAt - now)}
+                      </span>
+                    </div>
                   )}
                 </div>}
               </div>

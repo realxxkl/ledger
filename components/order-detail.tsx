@@ -81,9 +81,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       </div>
       <div className="grid gap-4 p-5 sm:grid-cols-2">
         <Metric label="Order amount" value={currency(order.orderAmount ?? 0)} />
-        <Metric label="Order cost" value={currency(order.orderCost ?? 0)} />
-        <Metric label="Platform fee" value={currency(order.orderFee ?? 0)} />
-        <Metric label={orderStatusGroup === "In Progress" ? "Profit to be made" : "Profit"} value={currency(displayedProfit)} />
+        <Metric label="Order cost" value={currency(order.orderCost ?? 0)} tone="negative" />
+        <Metric label="Platform fee" value={currency(order.orderFee ?? 0)} tone="fee" />
+        <Metric label={orderStatusGroup === "In Progress" ? "Profit to be made" : "Profit"} value={currency(displayedProfit)} tone="positive" />
       </div>
       <div className="border-t-2 border-border p-5">
         <PendingOrders
@@ -99,6 +99,12 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="border-2 border-border p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-2 font-display text-xl font-black">{value}</p></div>
+function Metric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "negative" | "fee" | "positive" }) {
+  const toneStyles = {
+    default: "border-border text-foreground",
+    negative: "border-negative/40 text-negative",
+    fee: "border-fee/50 text-fee",
+    positive: "border-positive/40 text-positive",
+  }
+  return <div className={`border-2 p-4 ${toneStyles[tone]}`}><p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-2 font-display text-xl font-black">{value}</p></div>
 }
