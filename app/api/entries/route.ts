@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { entries } from "@/lib/db/schema"
+import { entries, epicOrderSessions } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 
 // Map U7Buy order statuses to display names
@@ -61,38 +61,86 @@ export async function POST(req: NextRequest) {
   }
 }
 
+async function revokeEpicToken(token: string, tokenTypeHint: "access_token" | "refresh_token", basicToken: string) {
+  const response = await fetch("https://api.epicgames.dev/epic/oauth/v2/revoke", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${basicToken}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: new URLSearchParams({ token, token_type_hint: tokenTypeHint }),
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Epic ${tokenTypeHint} revocation returned HTTP ${response.status}`)
+}
+
 export async function PATCH(req: NextRequest) {
   try {
     const b = await req.json()
-    const { id, orderStatus } = b
-    if (!id) {
-      return NextResponse.json({ error: "Missing entry id" }, { status: 400 })
+    const id = Number(b?.id)
+    const orderStatus = b?.orderStatus
+    const date = b?.date
+    if (!Number.isInteger(id) || id <= 0) {
+      return NextResponse.json({ error: "Missing or invalid entry id" }, { status: 400 })
+    }
+    if (date !== undefined && (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date)) {
+      return NextResponse.json({ error: "Order date must be a valid YYYY-MM-DD date" }, { status: 400 })
+    }
+    if (orderStatus === undefined && date === undefined) {
+      return NextResponse.json({ error: "No order fields to update" }, { status: 400 })
     }
 
-    const isDelivered = ["delivered", "completed"].includes(String(orderStatus || "").trim().toLowerCase())
-    const values = isDelivered
-      ? { orderStatus: orderStatus || null, earned: undefined, profit: undefined }
-      : { orderStatus: orderStatus || null }
+    const normalizedStatus = String(orderStatus || "").trim().toLowerCase()
+    const isCompleted = ["delivered", "completed"].includes(normalizedStatus)
+    const isRefunded = normalizedStatus === "refunded"
+    const shouldPurgeEpicSession = isCompleted || isRefunded
+    if (shouldPurgeEpicSession) {
+      const epicRows = await db.select({ accessToken: epicOrderSessions.accessToken, refreshToken: epicOrderSessions.refreshToken })
+        .from(epicOrderSessions).where(eq(epicOrderSessions.orderId, id)).limit(1)
+      const epicSession = epicRows[0]
+      if (epicSession?.accessToken || epicSession?.refreshToken) {
+        const basicToken = process.env.EPIC_BASIC_TOKEN
+        if (!basicToken) return NextResponse.json({ error: "Epic credentials are not configured; session was not purged" }, { status: 503 })
+        try {
+          if (epicSession.refreshToken) await revokeEpicToken(epicSession.refreshToken, "refresh_token", basicToken)
+          if (epicSession.accessToken) await revokeEpicToken(epicSession.accessToken, "access_token", basicToken)
+        } catch (error) {
+          console.error(`[Epic] Could not revoke session for order ${id}`, error instanceof Error ? error.message : "unknown error")
+          return NextResponse.json({ error: "Epic access could not be revoked, so the order status was not updated and the saved session was preserved." }, { status: 502 })
+        }
+      }
+    }
 
-    if (isDelivered) {
-      const current = await db
-        .select({ orderAmount: entries.orderAmount, orderCost: entries.orderCost, orderFee: entries.orderFee })
-        .from(entries)
-        .where(eq(entries.id, Number(id)))
-      const orderAmount = Number(current[0]?.orderAmount ?? 0)
-      const orderCost = Number(current[0]?.orderCost ?? 0)
-      const orderFee = Number(current[0]?.orderFee ?? 0)
-      await db.update(entries).set({
-        orderStatus: orderStatus || null,
-        earned: String(orderAmount),
-        paid: String(orderCost),
-        feeAmt: String(orderFee),
-        profit: String(orderAmount - orderCost - orderFee),
-      }).where(eq(entries.id, Number(id)))
+    await db.transaction(async (tx) => {
+      if (orderStatus !== undefined) {
+        if (isCompleted) {
+          const current = await tx.select({ orderAmount: entries.orderAmount, orderCost: entries.orderCost, orderFee: entries.orderFee })
+            .from(entries).where(eq(entries.id, id)).limit(1)
+          if (!current[0]) throw new Error("Order not found")
+          const orderAmount = Number(current[0].orderAmount ?? 0)
+          const orderCost = Number(current[0].orderCost ?? 0)
+          const orderFee = Number(current[0].orderFee ?? 0)
+          await tx.update(entries).set({
+            orderStatus: String(orderStatus),
+            earned: String(orderAmount),
+            paid: String(orderCost),
+            feeAmt: String(orderFee),
+            profit: String(orderAmount - orderCost - orderFee),
+            ...(date ? { date } : {}),
+          }).where(eq(entries.id, id))
+          await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))
+      } else if (isRefunded) {
+        await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
+        await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))
+      } else {
+        await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
+      }
     } else {
-      await db.update(entries).set(values).where(eq(entries.id, Number(id)))
-    }
-    return NextResponse.json({ ok: true })
+        await tx.update(entries).set({ date }).where(eq(entries.id, id))
+      }
+    })
+    return NextResponse.json({ ok: true, epicSessionPurged: shouldPurgeEpicSession })
   } catch (err) {
     console.error("[v0] PATCH /api/entries failed:", err)
     return NextResponse.json({ error: "Failed to update entry" }, { status: 500 })

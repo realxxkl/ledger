@@ -13,6 +13,7 @@ import { FilterBar } from "@/components/filter-bar"
 import { MonthlyChart } from "@/components/monthly-chart"
 import { SignOutButton } from "@/components/sign-out-button"
 import { PendingOrders } from "@/components/pending-orders"
+import { LoadingScreen } from "@/components/loading-screen"
 
 type Tab = "dashboard" | "withdrawals" | "settings" | "pending-orders"
 
@@ -35,6 +36,9 @@ export default function Page() {
   useEffect(() => {
     const today = new Date().toLocaleDateString("en-CA") // YYYY-MM-DD in local time
     setRange({ from: today, to: today })
+    if (new URLSearchParams(window.location.search).get("tab") === "pending-orders") {
+      setTab("pending-orders")
+    }
   }, [])
 
   const salesRef = useRef<HTMLDivElement>(null)
@@ -94,6 +98,10 @@ export default function Page() {
     const id = setInterval(update, 60_000)
     return () => clearInterval(id)
   }, [])
+
+  if (isLoading && !data) {
+    return <LoadingScreen message="Connecting to your ledger records" />
+  }
 
   return (
     <main className="min-h-screen bg-background">
@@ -157,12 +165,6 @@ export default function Page() {
         </header>
 
         <div className="mt-8">
-          {isLoading && (
-            <p className="py-20 text-center text-sm uppercase tracking-wider text-muted-foreground">
-              Loading ledger…
-            </p>
-          )}
-
           {error && (
             <p className="py-20 text-center text-sm uppercase tracking-wider text-negative">
               Failed to load data. Check that the database is connected.

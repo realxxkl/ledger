@@ -1,7 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Trash2, X, Edit2, Check } from "lucide-react"
+import Link from "next/link"
+import { Trash2, X, Edit2, Check, LoaderCircle } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
@@ -19,21 +20,25 @@ export function EntriesTable({
   onClearFocus,
 }: {
   data: LedgerData
-  onChange: () => void
+  onChange: () => void | Promise<unknown>
   focusMonth?: string | null
   onClearFocus?: () => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [savingStatusId, setSavingStatusId] = useState<string | null>(null)
   const [editingStatus, setEditingStatus] = useState<string | null>(null)
   const [statusValue, setStatusValue] = useState<string>("")
 
   const saveStatus = async (id: string) => {
+    setSavingStatusId(id)
     try {
       await apiSend("/api/entries", "PATCH", { id: Number(id), orderStatus: statusValue })
       setEditingStatus(null)
-      onChange()
+      await onChange()
     } catch (err) {
       console.error("[v0] Failed to update status:", err)
+    } finally {
+      setSavingStatusId(null)
     }
   }
 
@@ -41,7 +46,7 @@ export function EntriesTable({
     setBusy(id)
     try {
       await apiSend(`/api/entries?id=${id}`, "DELETE")
-      onChange()
+      await onChange()
     } finally {
       setBusy(null)
     }
@@ -101,7 +106,14 @@ export function EntriesTable({
               {rows.map((e) => (
                 <tr key={e.id} className="border-b border-border last:border-0 hover:bg-muted/40">
                   <td className="px-5 py-3 text-muted-foreground">{e.date}</td>
-                  <td className="px-5 py-3 font-bold">{e.service}</td>
+                  <td className="px-5 py-3 font-bold">
+                    {e.u7buyOrderId ? (
+                      <Link href={`/orders/${e.id}`} className="underline decoration-border underline-offset-4 transition-colors hover:text-primary">
+                        {e.service}
+                        <span className="sr-only"> — open order {e.u7buyOrderId}</span>
+                      </Link>
+                    ) : e.service}
+                  </td>
                   <td className="px-5 py-3 text-muted-foreground">{e.platform}</td>
                   <td className="px-5 py-3 text-right">{currency(e.earned)}</td>
                   <td className="px-5 py-3 text-right text-negative">{currency(e.feeAmt)}</td>
@@ -114,7 +126,12 @@ export function EntriesTable({
                     {currency(e.profit)}
                   </td>
                   <td className="px-5 py-3">
-                    {editingStatus === e.id ? (
+                    {e.u7buyOrderId ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">{e.orderStatus || "-"}</span>
+                        <Link href={`/orders/${e.id}`} className="text-[10px] font-bold uppercase tracking-wider text-primary underline underline-offset-2">Manage</Link>
+                      </div>
+                    ) : editingStatus === e.id ? (
                       <div className="flex items-center gap-1">
                         <input
                           type="text"
@@ -128,7 +145,7 @@ export function EntriesTable({
                           className="p-1 text-primary hover:text-primary/80"
                           aria-label="Save status"
                         >
-                          <Check className="size-3" aria-hidden="true" />
+                          {savingStatusId === e.id ? <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="size-3" aria-hidden="true" />}
                         </button>
                       </div>
                     ) : (
@@ -154,7 +171,7 @@ export function EntriesTable({
                       className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:opacity-50"
                       aria-label={`Delete ${e.service} entry`}
                     >
-                      <Trash2 className="size-4" aria-hidden="true" />
+                      {busy === e.id ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
                     </button>
                   </td>
                 </tr>

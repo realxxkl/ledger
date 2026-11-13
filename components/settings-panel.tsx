@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { Plus, Trash2, Download, Upload } from "lucide-react"
+import { Plus, Trash2, Download, Upload, LoaderCircle } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
@@ -13,7 +13,7 @@ const primaryBtn =
 const outlineBtn =
   "flex items-center justify-center gap-2 border-2 border-border px-4 py-2 text-sm font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
 
-export function SettingsPanel({ data, onChange }: { data: LedgerData; onChange: () => void }) {
+export function SettingsPanel({ data, onChange }: { data: LedgerData; onChange: () => void | Promise<unknown> }) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <FeesSection data={data} onChange={onChange} />
@@ -25,28 +25,39 @@ export function SettingsPanel({ data, onChange }: { data: LedgerData; onChange: 
   )
 }
 
-function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => void }) {
+function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => void | Promise<unknown> }) {
   const [name, setName] = useState("")
   const [percent, setPercent] = useState("")
   const [flat, setFlat] = useState("")
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    await apiSend("/api/fees", "PUT", {
-      name: name.trim(),
-      percent: Number(percent) || 0,
-      flat: Number(flat) || 0,
-    })
-    setName("")
-    setPercent("")
-    setFlat("")
-    onChange()
+    setPendingAction("Saving platform fees")
+    try {
+      await apiSend("/api/fees", "PUT", {
+        name: name.trim(),
+        percent: Number(percent) || 0,
+        flat: Number(flat) || 0,
+      })
+      setName("")
+      setPercent("")
+      setFlat("")
+      await onChange()
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const remove = async (key: string) => {
-    await apiSend(`/api/fees?key=${encodeURIComponent(key)}`, "DELETE")
-    onChange()
+    setPendingAction(`Removing platform fee:${key}`)
+    try {
+      await apiSend(`/api/fees?key=${encodeURIComponent(key)}`, "DELETE")
+      await onChange()
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   return (
@@ -61,9 +72,9 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Platform" className={`${inputCls} col-span-3`} />
         <input type="number" step="0.01" min="0" value={percent} onChange={(e) => setPercent(e.target.value)} placeholder="Percent %" className={inputCls} />
         <input type="number" step="0.01" min="0" value={flat} onChange={(e) => setFlat(e.target.value)} placeholder="Flat $" className={inputCls} />
-        <button type="submit" className={primaryBtn}>
-          <Plus className="size-4" aria-hidden="true" />
-          Save
+        <button type="submit" disabled={pendingAction !== null} className={primaryBtn}>
+          {pendingAction === "Saving platform fees" ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}
+          {pendingAction === "Saving platform fees" ? "Saving…" : "Save"}
         </button>
       </form>
       {Object.keys(data.feeConfig).length === 0 ? (
@@ -81,10 +92,13 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
                 </span>
                 <button
                   onClick={() => remove(key)}
-                  className="p-1.5 text-muted-foreground transition-colors hover:text-negative"
+                  disabled={pendingAction !== null}
+                  className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:cursor-wait disabled:opacity-50"
                   aria-label={`Delete ${cfg.name} fee`}
                 >
-                  <Trash2 className="size-4" aria-hidden="true" />
+                  {pendingAction === `Removing platform fee:${key}` ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
+
+
                 </button>
               </div>
             </li>
@@ -95,14 +109,15 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
   )
 }
 
-function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => void }) {
+function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => void | Promise<unknown> }) {
   const [name, setName] = useState("")
   const [cost, setCost] = useState("")
   const [currency, setCurrency] = useState<'usd' | 'egp'>('usd')
-  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState("")
   const [editingCost, setEditingCost] = useState("")
   const [editingCurrency, setEditingCurrency] = useState<'usd' | 'egp'>('usd')
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
 
   const startEdit = (preset: (typeof data.servicePresets)[number]) => {
     setEditingId(preset.id)
@@ -113,29 +128,44 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
 
   const saveEdit = async () => {
     if (editingId === null || !editingName.trim()) return
-    await apiSend("/api/presets", "PUT", {
-      id: editingId,
-      name: editingName.trim(),
-      cost: Number(editingCost) || 0,
-      currency: editingCurrency,
-    })
-    setEditingId(null)
-    onChange()
+    setPendingAction("Saving service preset")
+    try {
+      await apiSend("/api/presets", "PUT", {
+        id: Number(editingId),
+        name: editingName.trim(),
+        cost: Number(editingCost) || 0,
+        currency: editingCurrency,
+      })
+      setEditingId(null)
+      await onChange()
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    await apiSend("/api/presets", "POST", { name: name.trim(), cost: Number(cost) || 0, currency })
-    setName("")
-    setCost("")
-    setCurrency('usd')
-    onChange()
+    setPendingAction("Adding service preset")
+    try {
+      await apiSend("/api/presets", "POST", { name: name.trim(), cost: Number(cost) || 0, currency })
+      setName("")
+      setCost("")
+      setCurrency('usd')
+      await onChange()
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const remove = async (id: string) => {
-    await apiSend(`/api/presets?id=${id}`, "DELETE")
-    onChange()
+    setPendingAction(`Removing service preset:${id}`)
+    try {
+      await apiSend(`/api/presets?id=${id}`, "DELETE")
+      await onChange()
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   return (
@@ -154,9 +184,9 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
           <option value="usd">USD</option>
           <option value="egp">EGP</option>
         </select>
-        <button type="submit" className={`${primaryBtn} col-span-4 justify-self-start`}>
-          <Plus className="size-4" aria-hidden="true" />
-          Add Preset
+        <button type="submit" disabled={pendingAction !== null} className={`${primaryBtn} col-span-4 justify-self-start`}>
+          {(pendingAction === "Adding service preset" || pendingAction === "Saving service preset") ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}
+          {pendingAction === "Adding service preset" ? "Adding…" : pendingAction === "Saving service preset" ? "Saving…" : "Add Preset"}
         </button>
       </form>
       {data.servicePresets.length === 0 ? (
@@ -175,8 +205,12 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
                     <option value="usd">USD</option>
                     <option value="egp">EGP</option>
                   </select>
-                  <button type="button" onClick={saveEdit} className={primaryBtn}>Save</button>
-                  <button type="button" onClick={() => setEditingId(null)} className={outlineBtn}>Cancel</button>
+                  <button type="button" disabled={pendingAction !== null} onClick={saveEdit} className={primaryBtn}>
+                    {pendingAction === "Saving service preset" && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                    {pendingAction ? "Saving…" : "Save"}
+                  </button>
+
+                  <button type="button" disabled={pendingAction !== null} onClick={() => setEditingId(null)} className={outlineBtn}>Cancel</button>
                 </div>
               ) : (
                 <>
@@ -195,11 +229,12 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
                     </button>
                     <button
                       type="button"
-                      onClick={() => remove(p.id)}
-                      className="p-1.5 text-muted-foreground transition-colors hover:text-negative"
+                      onClick={() => remove(String(p.id))}
+                      disabled={pendingAction !== null}
+                      className="p-1.5 text-muted-foreground transition-colors hover:text-negative disabled:cursor-wait disabled:opacity-50"
                       aria-label={`Delete ${p.name} preset`}
                     >
-                      <Trash2 className="size-4" aria-hidden="true" />
+                  {pendingAction === `Removing service preset:${p.id}` ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="size-4" aria-hidden="true" />}
                     </button>
                   </div>
                 </>
@@ -212,9 +247,10 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
   )
 }
 
-function BackupSection({ data, onChange }: { data: LedgerData; onChange: () => void }) {
+function BackupSection({ data, onChange }: { data: LedgerData; onChange: () => void | Promise<unknown> }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState("")
+  const [isImporting, setIsImporting] = useState(false)
 
   const exportData = () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
@@ -230,14 +266,16 @@ function BackupSection({ data, onChange }: { data: LedgerData; onChange: () => v
     const file = e.target.files?.[0]
     if (!file) return
     setStatus("Importing…")
+    setIsImporting(true)
     try {
       const parsed = JSON.parse(await file.text())
       await apiSend("/api/import", "POST", parsed)
+      await onChange()
       setStatus("Import complete.")
-      onChange()
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Import failed.")
     } finally {
+      setIsImporting(false)
       if (fileRef.current) fileRef.current.value = ""
     }
   }
@@ -253,9 +291,9 @@ function BackupSection({ data, onChange }: { data: LedgerData; onChange: () => v
           <Download className="size-4" aria-hidden="true" />
           Export
         </button>
-        <button type="button" className={outlineBtn} onClick={() => fileRef.current?.click()}>
-          <Upload className="size-4" aria-hidden="true" />
-          Import
+        <button type="button" disabled={isImporting} className={outlineBtn} onClick={() => fileRef.current?.click()}>
+          {isImporting ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />}
+          {isImporting ? "Importing…" : "Import"}
         </button>
         <input ref={fileRef} type="file" accept="application/json" onChange={importData} className="hidden" />
         {status && <span className="text-xs uppercase tracking-wider text-muted-foreground">{status}</span>}

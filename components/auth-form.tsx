@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
+import { LoaderCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { authClient } from "@/lib/auth-client"
 
@@ -17,19 +18,24 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
     setPending(true)
     setError("")
 
-    const result =
-      mode === "setup"
-        ? await authClient.signUp.email({ name: name.trim(), email: email.trim(), password })
-        : await authClient.signIn.email({ email: email.trim(), password })
+    try {
+      const result =
+        mode === "setup"
+          ? await authClient.signUp.email({ name: name.trim(), email: email.trim(), password })
+          : await authClient.signIn.email({ email: email.trim(), password })
 
-    if (result.error) {
-      setError(mode === "setup" ? "Owner setup could not be completed." : "Email or password is incorrect.")
+      if (result.error) {
+        setError(mode === "setup" ? "Owner setup could not be completed." : "Email or password is incorrect.")
+        setPending(false)
+        return
+      }
+
+      router.push("/")
+      router.refresh()
+    } catch {
+      setError(mode === "setup" ? "Owner setup could not be completed." : "Sign-in could not be completed.")
       setPending(false)
-      return
     }
-
-    router.push("/")
-    router.refresh()
   }
 
   return (
@@ -50,6 +56,7 @@ export function AuthForm({ mode }: { mode: "setup" | "sign-in" }) {
       </label>
       {error && <p role="alert" className="text-sm text-negative">{error}</p>}
       <button disabled={pending} className="bg-primary px-5 py-3 text-sm font-black uppercase tracking-wider text-primary-foreground disabled:opacity-60">
+        {pending && <LoaderCircle className="mr-2 inline size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
         {pending ? "Please wait…" : mode === "setup" ? "Create owner account" : "Unlock ledger"}
       </button>
     </form>
