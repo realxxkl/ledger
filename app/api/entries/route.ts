@@ -91,8 +91,11 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "No order fields to update" }, { status: 400 })
     }
 
-    const isCompleted = ["delivered", "completed"].includes(String(orderStatus || "").trim().toLowerCase())
-    if (isCompleted) {
+    const normalizedStatus = String(orderStatus || "").trim().toLowerCase()
+    const isCompleted = ["delivered", "completed"].includes(normalizedStatus)
+    const isRefunded = normalizedStatus === "refunded"
+    const shouldPurgeEpicSession = isCompleted || isRefunded
+    if (shouldPurgeEpicSession) {
       const epicRows = await db.select({ accessToken: epicOrderSessions.accessToken, refreshToken: epicOrderSessions.refreshToken })
         .from(epicOrderSessions).where(eq(epicOrderSessions.orderId, id)).limit(1)
       const epicSession = epicRows[0]
@@ -104,7 +107,7 @@ export async function PATCH(req: NextRequest) {
           if (epicSession.accessToken) await revokeEpicToken(epicSession.accessToken, "access_token", basicToken)
         } catch (error) {
           console.error(`[Epic] Could not revoke session for order ${id}`, error instanceof Error ? error.message : "unknown error")
-          return NextResponse.json({ error: "Epic access could not be revoked, so the order was not marked complete and the saved session was preserved." }, { status: 502 })
+          return NextResponse.json({ error: "Epic access could not be revoked, so the order status was not updated and the saved session was preserved." }, { status: 502 })
         }
       }
     }
@@ -127,14 +130,17 @@ export async function PATCH(req: NextRequest) {
             ...(date ? { date } : {}),
           }).where(eq(entries.id, id))
           await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))
-        } else {
-          await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
-        }
+      } else if (isRefunded) {
+        await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
+        await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))
       } else {
+        await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
+      }
+    } else {
         await tx.update(entries).set({ date }).where(eq(entries.id, id))
       }
     })
-    return NextResponse.json({ ok: true, epicSessionPurged: isCompleted })
+    return NextResponse.json({ ok: true, epicSessionPurged: shouldPurgeEpicSession })
   } catch (err) {
     console.error("[v0] PATCH /api/entries failed:", err)
     return NextResponse.json({ error: "Failed to update entry" }, { status: 500 })

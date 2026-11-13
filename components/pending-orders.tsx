@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react"
 import Link from "next/link"
-import { Clock3, PackageCheck, Plus, Search } from "lucide-react"
+import { PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency } from "@/lib/types"
 
@@ -49,7 +49,7 @@ export function PendingOrders({
     authLinkExpiresAt?: string
     authUserCode?: string
   }[]
-  onChange: () => void
+  onChange: () => void | Promise<unknown>
   focusedOrderId?: string
 }) {
   const [productName, setProductName] = useState("")
@@ -62,6 +62,7 @@ export function PendingOrders({
     ? Number(amount || 0) * (selectedFee.percent / 100) + selectedFee.flat
     : 0
   const [isSaving, setIsSaving] = useState(false)
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
@@ -141,16 +142,24 @@ export function PendingOrders({
     }
   }
 
-  async function handleStatusChange(order: Entry, orderStatus: string) {
-    const response = await fetch("/api/entries", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: order.id, orderStatus }),
-    })
-    if (response.ok) {
-      onChange()
-    } else {
-      setError("Could not update the order status. Please try again.")
+  async function handleStatusChange(order: Entry, orderStatus: "Completed" | "Refunded") {
+    setUpdatingOrderId(order.id)
+    setError("")
+    try {
+      const response = await fetch("/api/entries", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: order.id, orderStatus }),
+      })
+      if (!response.ok) {
+        const result = await response.json().catch(() => null)
+        throw new Error(result?.error || "Could not update the order status. Please try again.")
+      }
+      await onChange()
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Could not update the order status. Please try again.")
+    } finally {
+      setUpdatingOrderId(null)
     }
   }
 
@@ -458,25 +467,31 @@ export function PendingOrders({
                   </>}
                 </div>}
               </div>
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                {focusedOrderId && (Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)) || getOrderStatusGroup(order.orderStatus) !== "In Progress") ? (
-                  <>
-                    <Clock3 className="size-3.5" aria-hidden="true" />
-                    <label className="sr-only" htmlFor={`order-status-${order.id}`}>Status for order {order.u7buyOrderId}</label>
-                    <select
-                      id={`order-status-${order.id}`}
-                      value={getOrderStatusGroup(order.orderStatus)}
-                      onChange={(event) => handleStatusChange(order, event.target.value)}
-                      className={`border px-2 py-1 font-bold uppercase tracking-wider outline-none ${statusTone(getOrderStatusGroup(order.orderStatus))}`}
+              <div className="flex flex-col items-end gap-3">
+                <span className={`border px-2 py-1 text-xs font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
+                  {getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
+                </span>
+                {focusedOrderId && getOrderStatusGroup(order.orderStatus) === "In Progress" && (
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={updatingOrderId === order.id}
+                      onClick={() => handleStatusChange(order, "Completed")}
+                      className="border-2 border-primary bg-primary px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
                     >
-                      {ORDER_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
-                    </select>
-                  </>
-                ) : (
-                  <span className={`border px-2 py-1 font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
-                    {getOrderStatusLabel(order.orderStatus, Boolean(epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
-                  </span>
+                      {updatingOrderId === order.id ? "Updating…" : "Mark as completed"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingOrderId === order.id}
+                      onClick={() => handleStatusChange(order, "Refunded")}
+                      className="border-2 border-border px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-destructive hover:text-destructive disabled:cursor-wait disabled:opacity-60"
+                    >
+                      Problems with order? Refunded
+                    </button>
+                  </div>
                 )}
+                {focusedOrderId && error && <p role="alert" className="text-right text-xs font-bold text-destructive">{error}</p>}
               </div>
               <p className="text-right font-display text-lg font-black text-primary">{currency(order.earned)}</p>
             </article>

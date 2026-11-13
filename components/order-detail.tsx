@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { useLedger } from "@/lib/use-ledger"
 import { currency } from "@/lib/types"
-import { getOrderStatusLabel, PendingOrders } from "@/components/pending-orders"
+import { getOrderStatusGroup, getOrderStatusLabel, PendingOrders } from "@/components/pending-orders"
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { data, isLoading, mutate } = useLedger()
@@ -12,7 +12,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const [dateError, setDateError] = useState("")
   const order = data?.entries.find((entry) => entry.id === orderId && entry.u7buyOrderId)
   const sessionExists = data?.epicSessions?.some((session) => session.orderId === orderId && session.accessTokenStored)
-  const completed = ["completed", "delivered"].includes((order?.orderStatus ?? "").toLowerCase())
+  const orderStatusGroup = getOrderStatusGroup(order?.orderStatus)
+  const completed = orderStatusGroup === "Completed"
+  const displayedProfit = orderStatusGroup === "In Progress"
+    ? (order?.orderAmount ?? 0) - (order?.orderCost ?? 0) - (order?.orderFee ?? 0)
+    : orderStatusGroup === "Refunded" ? 0 : order?.profit ?? 0
 
   async function updateDate(date: string) {
     if (!order || !date) return
@@ -74,7 +78,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <Metric label="Order amount" value={currency(order.orderAmount ?? 0)} />
         <Metric label="Order cost" value={currency(order.orderCost ?? 0)} />
         <Metric label="Platform fee" value={currency(order.orderFee ?? 0)} />
-        <Metric label="Profit" value={currency(order.profit)} />
+        <Metric label={orderStatusGroup === "In Progress" ? "Profit to be made" : "Profit"} value={currency(displayedProfit)} />
       </div>
       <div className="border-t-2 border-border p-5">
         <PendingOrders
