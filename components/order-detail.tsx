@@ -95,7 +95,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <div className="bg-card p-5">
           <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Epic account access</p>
           {completed ? (
-            <p className="mt-2 text-sm font-bold text-primary">Epic access has been revoked and purged.</p>
+            <p className="mt-2 text-sm font-bold text-primary">Order is marked complete. The saved Epic session remains available.</p>
           ) : sessionExists ? (
             <p className="mt-2 text-sm font-bold">Epic session is connected to this order.</p>
           ) : (

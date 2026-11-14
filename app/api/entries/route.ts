@@ -1,9 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { entries, epicOrderSessions } from "@/lib/db/schema"
+import { entries } from "@/lib/db/schema"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
-import { getEpicVBucksBalance } from "@/lib/epic-balance"
-import { refreshEpicSession } from "@/lib/epic-refresh"
 import { eq } from "drizzle-orm"
 
 export const runtime = "nodejs"
@@ -44,20 +42,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function revokeEpicToken(token: string, tokenTypeHint: "access_token" | "refresh_token", basicToken: string) {
-  const response = await fetch("https://api.epicgames.dev/epic/oauth/v2/revoke", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basicToken}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    },
-    body: new URLSearchParams({ token, token_type_hint: tokenTypeHint }),
-    cache: "no-store",
-  })
-  if (!response.ok) throw new Error(`Epic ${tokenTypeHint} revocation returned HTTP ${response.status}`)
-}
-
 export async function PATCH(req: NextRequest) {
   try {
     const b = await req.json()
@@ -77,57 +61,6 @@ export async function PATCH(req: NextRequest) {
     const normalizedStatus = String(orderStatus || "").trim().toLowerCase()
     const isCompleted = ["delivered", "completed"].includes(normalizedStatus)
     const isRefunded = normalizedStatus === "refunded"
-    const shouldPurgeEpicSession = isCompleted || isRefunded
-    let vbucksAfter: number | undefined
-    if (shouldPurgeEpicSession) {
-      await ensureOrderTrackingSchema()
-      const epicRows = await db.select({
-        accountId: epicOrderSessions.accountId,
-        accessToken: epicOrderSessions.accessToken,
-        refreshToken: epicOrderSessions.refreshToken,
-        expiresAt: epicOrderSessions.expiresAt,
-      })
-        .from(epicOrderSessions).where(eq(epicOrderSessions.orderId, id)).limit(1)
-      const epicSession = epicRows[0]
-      let accessToken = epicSession?.accessToken
-      let refreshToken = epicSession?.refreshToken
-      if (
-        isCompleted &&
-        epicSession?.expiresAt &&
-        epicSession.expiresAt.getTime() <= Date.now() + 30_000 &&
-        refreshToken
-      ) {
-        try {
-          const refreshed = await refreshEpicSession(id, refreshToken)
-          accessToken = refreshed.accessToken
-          refreshToken = refreshed.refreshToken
-        } catch (error) {
-          console.error(`[Epic] Could not refresh session before final VBucks query for order ${id}`, error)
-          return NextResponse.json({ error: "Epic session could not be refreshed; the order was not completed and the saved session was preserved." }, { status: 502 })
-        }
-      }
-      if (isCompleted && epicSession?.accountId && accessToken) {
-        try {
-          const balance = await getEpicVBucksBalance(epicSession.accountId, accessToken)
-          vbucksAfter = balance.totalVBucks
-        } catch (error) {
-          console.error(`[Epic] Could not record final VBucks balance for order ${id}`, error)
-          return NextResponse.json({ error: "Epic balance could not be retrieved; the order was not completed and the saved session was preserved." }, { status: 502 })
-        }
-      }
-      if (accessToken || refreshToken) {
-        const basicToken = process.env.EPIC_BASIC_TOKEN
-        if (!basicToken) return NextResponse.json({ error: "Epic credentials are not configured; session was not purged" }, { status: 503 })
-        try {
-          if (refreshToken) await revokeEpicToken(refreshToken, "refresh_token", basicToken)
-          if (accessToken) await revokeEpicToken(accessToken, "access_token", basicToken)
-        } catch (error) {
-          console.error(`[Epic] Could not revoke session for order ${id}`, error instanceof Error ? error.message : "unknown error")
-          return NextResponse.json({ error: "Epic access could not be revoked, so the order status was not updated and the saved session was preserved." }, { status: 502 })
-        }
-      }
-    }
-
     await db.transaction(async (tx) => {
       if (orderStatus !== undefined) {
         if (isCompleted) {
@@ -143,13 +76,10 @@ export async function PATCH(req: NextRequest) {
             paid: String(orderCost),
             feeAmt: String(orderFee),
             profit: String(orderAmount - orderCost - orderFee),
-            ...(vbucksAfter !== undefined ? { vbucksAfter } : {}),
             ...(date ? { date } : {}),
           }).where(eq(entries.id, id))
-          await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))
       } else if (isRefunded) {
         await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
-        await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))
       } else {
         await tx.update(entries).set({ orderStatus: String(orderStatus), ...(date ? { date } : {}) }).where(eq(entries.id, id))
       }
@@ -157,7 +87,7 @@ export async function PATCH(req: NextRequest) {
         await tx.update(entries).set({ date }).where(eq(entries.id, id))
       }
     })
-    return NextResponse.json({ ok: true, epicSessionPurged: shouldPurgeEpicSession })
+    return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[v0] PATCH /api/entries failed:", err)
     return NextResponse.json({ error: "Failed to update entry" }, { status: 500 })

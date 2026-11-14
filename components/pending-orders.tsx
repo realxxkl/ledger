@@ -182,7 +182,7 @@ export function PendingOrders({
   const [expiredAuthLinks, setExpiredAuthLinks] = useState<Record<number, boolean>>({})
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
-  const [waitingSort, setWaitingSort] = useState<"newest" | "oldest">("newest")
+  const [orderSort, setOrderSort] = useState<"newest" | "oldest" | "authorized" | "unauthorized">("newest")
   const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
   const [selectedPresenceOrderIds, setSelectedPresenceOrderIds] = useState<Set<string>>(() => new Set())
@@ -271,7 +271,19 @@ export function PendingOrders({
     const aWaitingTime = Date.parse(a.waitingSince ?? a.date)
     const bWaitingTime = Date.parse(b.waitingSince ?? b.date)
     const dateOrder = aWaitingTime - bWaitingTime
-    return waitingSort === "oldest" ? dateOrder : -dateOrder
+
+    if (orderSort === "authorized" || orderSort === "unauthorized") {
+      const aAuthorized = Boolean(epicSessions?.some((session) => session.orderId === a.id && session.accessTokenStored))
+      const bAuthorized = Boolean(epicSessions?.some((session) => session.orderId === b.id && session.accessTokenStored))
+      if (aAuthorized !== bAuthorized) {
+        return orderSort === "authorized"
+          ? Number(bAuthorized) - Number(aAuthorized)
+          : Number(aAuthorized) - Number(bAuthorized)
+      }
+      return -dateOrder
+    }
+
+    return orderSort === "oldest" ? dateOrder : -dateOrder
   })
   const presenceCheckableOrders = orders.filter(
     (order) => order.source === "playerok" && Boolean(order.buyerUsername?.trim()),
@@ -645,10 +657,12 @@ export function PendingOrders({
           </select>
         </label>
         <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Sort by waiting
-          <select value={waitingSort} onChange={(event) => setWaitingSort(event.target.value as typeof waitingSort)} className="h-10 border-2 border-border bg-background px-3 text-sm font-bold text-foreground outline-none focus:border-primary">
+          Sort by
+          <select value={orderSort} onChange={(event) => setOrderSort(event.target.value as typeof orderSort)} className="h-10 border-2 border-border bg-background px-3 text-sm font-bold text-foreground outline-none focus:border-primary">
             <option value="newest">Newest first</option>
             <option value="oldest">Waiting longest</option>
+            <option value="authorized">Authorized first</option>
+            <option value="unauthorized">Unauthorized first</option>
           </select>
         </label>
         <Search className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -777,7 +791,11 @@ export function PendingOrders({
                 )}
                 {focusedOrderId && <div className="mt-4 grid w-full max-w-2xl gap-3 border-l-2 border-primary/50 pl-4">
                   {["completed", "delivered", "refunded"].includes((order.orderStatus ?? "").trim().toLowerCase()) ? (
-                    <p className="text-xs font-bold text-primary">{getOrderStatusGroup(order.orderStatus) === "Refunded" ? "Order refunded. Epic authorization is no longer needed." : "Epic access has been revoked and purged."}</p>
+                    <p className="text-xs font-bold text-primary">
+                      {getOrderStatusGroup(order.orderStatus) === "Refunded"
+                        ? "Order marked refunded. The saved Epic session remains available."
+                        : "Order marked complete. The saved Epic session remains available."}
+                    </p>
                   ) : <>
                   {epicAccounts[Number(order.id)] ? (
                     <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">

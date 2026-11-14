@@ -42,7 +42,7 @@ export function ConfirmOrderCompletionDialog({
           Are you sure?
         </h2>
         <p id="complete-order-description" className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Mark {orderLabel} as completed? Epic access will be revoked and the order will be recorded as fulfilled.
+          Mark {orderLabel} as completed? This updates the ledger only; the saved Epic session will remain available.
         </p>
       </div>
       <div className="flex flex-col-reverse gap-2 p-5 sm:flex-row sm:justify-end sm:p-6">
