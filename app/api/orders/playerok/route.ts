@@ -77,6 +77,7 @@ export async function POST(request: NextRequest) {
 
     const orderId = typeof body.orderId === "string" ? body.orderId.trim() : ""
     const itemTitle = typeof body.itemTitle === "string" ? body.itemTitle.trim() : ""
+    const buyerUsername = typeof body.buyerUsername === "string" ? body.buyerUsername.trim() : ""
     const status = body.status
     const price = Number(body.price)
     const currency = typeof body.currency === "string" ? body.currency.toUpperCase() : "USD"
@@ -107,7 +108,11 @@ export async function POST(request: NextRequest) {
       console.warn(`[Playerok] No service cost preset matched order ${orderId}: ${itemTitle}`)
     }
 
-    const existing = await db.select({ id: entries.id, orderStatus: entries.orderStatus })
+    const existing = await db.select({
+      id: entries.id,
+      orderStatus: entries.orderStatus,
+      buyerUsername: entries.buyerUsername,
+    })
       .from(entries)
       .where(eq(entries.externalOrderId, orderId))
       .limit(1)
@@ -115,6 +120,7 @@ export async function POST(request: NextRequest) {
     let entryId = existing[0]?.id
     let alreadyLogged = Boolean(entryId)
     let existingStatus = existing[0]?.orderStatus
+    let existingBuyerUsername = existing[0]?.buyerUsername
     if (!entryId) {
       const inserted = await db.insert(entries).values({
         service: normalizeItemTitle(itemTitle),
@@ -131,18 +137,24 @@ export async function POST(request: NextRequest) {
         orderFee,
         externalOrderId: orderId,
         source: "playerok",
+        buyerUsername: buyerUsername || null,
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).onConflictDoNothing({ target: entries.externalOrderId }).returning({ id: entries.id })
 
       entryId = inserted[0]?.id
       if (!entryId) {
-        const conflict = await db.select({ id: entries.id, orderStatus: entries.orderStatus })
+        const conflict = await db.select({
+          id: entries.id,
+          orderStatus: entries.orderStatus,
+          buyerUsername: entries.buyerUsername,
+        })
           .from(entries)
           .where(eq(entries.externalOrderId, orderId))
           .limit(1)
         entryId = conflict[0]?.id
         existingStatus = conflict[0]?.orderStatus
+        existingBuyerUsername = conflict[0]?.buyerUsername
         alreadyLogged = Boolean(entryId)
       }
     }
@@ -175,6 +187,7 @@ export async function POST(request: NextRequest) {
         orderCost,
         orderFee,
         source: "playerok",
+        buyerUsername: buyerUsername || existingBuyerUsername || null,
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).where(eq(entries.id, entryId))

@@ -9,6 +9,82 @@ import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-complet
 
 const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
 const ORDER_STATUS_OPTIONS = ["In Progress", "Completed", "Refunded"] as const
+
+type BuyerPresenceResult = {
+  buyerUsername: string
+  status: "online" | "unknown"
+}
+
+function isBuyerPresenceResult(value: unknown): value is BuyerPresenceResult {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "buyerUsername" in value &&
+      typeof value.buyerUsername === "string" &&
+      "status" in value &&
+      (value.status === "online" || value.status === "unknown"),
+  )
+}
+
+function requestPlayerokPresence(buyerUsernames: string[]) {
+  return new Promise<{ results: BuyerPresenceResult[]; checkedAt: string }>((resolve, reject) => {
+    const requestId = crypto.randomUUID()
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener("message", handleMessage)
+      reject(new Error("No response from the extension. Check that it is enabled and reloaded."))
+    }, 12000)
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.source !== window ||
+        event.origin !== window.location.origin ||
+        event.data?.source !== "LEDGER_PLAYEROK_PRESENCE_RESULT" ||
+        event.data?.requestId !== requestId
+      ) {
+        return
+      }
+
+      window.clearTimeout(timeout)
+      window.removeEventListener("message", handleMessage)
+      const payload: unknown = event.data.payload
+      if (!payload || typeof payload !== "object") {
+        reject(new Error("The extension returned an invalid presence result."))
+        return
+      }
+      if ("error" in payload && typeof payload.error === "string") {
+        reject(new Error(payload.error))
+        return
+      }
+      if (
+        !("results" in payload) ||
+        !Array.isArray(payload.results) ||
+        !payload.results.every(isBuyerPresenceResult)
+      ) {
+        reject(new Error("The extension returned an invalid presence result."))
+        return
+      }
+
+      resolve({
+        results: payload.results,
+        checkedAt: "checkedAt" in payload && typeof payload.checkedAt === "string"
+          ? payload.checkedAt
+          : new Date().toISOString(),
+      })
+    }
+
+    window.addEventListener("message", handleMessage)
+    window.postMessage({
+      source: "LEDGER_PLAYEROK_PRESENCE_REQUEST",
+      requestId,
+      buyerUsernames,
+    }, window.location.origin)
+  })
+}
+
+function normalizeBuyerUsername(username: string) {
+  return username.trim().replace(/\s+/g, " ").toLowerCase()
+}
+
 function formatRemainingTime(milliseconds: number) {
   const seconds = Math.max(0, Math.ceil(milliseconds / 1000))
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
@@ -108,6 +184,11 @@ export function PendingOrders({
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
   const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
+  const [selectedPresenceOrderIds, setSelectedPresenceOrderIds] = useState<Set<string>>(() => new Set())
+  const [buyerPresence, setBuyerPresence] = useState<Record<string, BuyerPresenceResult & { checkedAt: string }>>({})
+  const [checkingPresence, setCheckingPresence] = useState(false)
+  const [presenceError, setPresenceError] = useState("")
+  const [presenceNotice, setPresenceNotice] = useState("")
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => {
@@ -186,6 +267,75 @@ export function PendingOrders({
     const query = search.trim().toLowerCase()
     return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
   })
+  const presenceCheckableOrders = orders.filter(
+    (order) => order.source === "playerok" && Boolean(order.buyerUsername?.trim()),
+  )
+  const selectedPresenceOrders = presenceCheckableOrders.filter((order) => selectedPresenceOrderIds.has(order.id))
+  const allPresenceOrdersSelected =
+    presenceCheckableOrders.length > 0 &&
+    presenceCheckableOrders.every((order) => selectedPresenceOrderIds.has(order.id))
+
+  function togglePresenceOrder(orderId: string, selected: boolean) {
+    setSelectedPresenceOrderIds((current) => {
+      const next = new Set(current)
+      if (selected) next.add(orderId)
+      else next.delete(orderId)
+      return next
+    })
+  }
+
+  function toggleAllPresenceOrders(selected: boolean) {
+    setSelectedPresenceOrderIds((current) => {
+      const next = new Set(current)
+      presenceCheckableOrders.forEach((order) => {
+        if (selected) next.add(order.id)
+        else next.delete(order.id)
+      })
+      return next
+    })
+  }
+
+  async function handleCheckBuyerPresence() {
+    if (checkingPresence || selectedPresenceOrders.length === 0) return
+    if (selectedPresenceOrders.length > 50) {
+      setPresenceError("Select no more than 50 orders for one check.")
+      return
+    }
+
+    setCheckingPresence(true)
+    setPresenceError("")
+    setPresenceNotice("")
+    try {
+      const uniqueBuyers = [...new Map(
+        selectedPresenceOrders.map((order) => [
+          normalizeBuyerUsername(order.buyerUsername!),
+          order.buyerUsername!.trim(),
+        ]),
+      ).values()]
+      const response = await requestPlayerokPresence(uniqueBuyers)
+      const resultsByUsername = new Map(
+        response.results.map((result) => [normalizeBuyerUsername(result.buyerUsername), result.status]),
+      )
+      const checkedAt = response.checkedAt
+      setBuyerPresence((current) => {
+        const next = { ...current }
+        selectedPresenceOrders.forEach((order) => {
+          const buyerUsername = order.buyerUsername!.trim()
+          next[order.id] = {
+            buyerUsername,
+            status: resultsByUsername.get(normalizeBuyerUsername(buyerUsername)) ?? "unknown",
+            checkedAt,
+          }
+        })
+        return next
+      })
+      setPresenceNotice(`Checked ${selectedPresenceOrders.length} order${selectedPresenceOrders.length === 1 ? "" : "s"}. No messages were sent.`)
+    } catch (error) {
+      setPresenceError(error instanceof Error ? error.message : "Could not check buyer presence.")
+    } finally {
+      setCheckingPresence(false)
+    }
+  }
 
   async function handleExchangeCode(order: Entry) {
     setAuthError("")
@@ -493,6 +643,51 @@ export function PendingOrders({
         <input id="order-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, product, platform, or status" className="h-10 min-w-0 flex-1 border-2 border-border bg-background px-3 text-sm outline-none focus:border-primary" />
       </div>}
 
+      {!focusedOrderId && presenceCheckableOrders.length > 0 && (
+        <div className="border-b-2 border-border bg-background/40 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={allPresenceOrdersSelected}
+                onChange={(event) => toggleAllPresenceOrders(event.target.checked)}
+                aria-label="Select all visible Playerok orders with buyer usernames"
+              />
+              Select visible Playerok orders ({presenceCheckableOrders.length})
+            </label>
+            <button
+              type="button"
+              disabled={selectedPresenceOrders.length === 0 || selectedPresenceOrders.length > 50 || checkingPresence}
+              onClick={handleCheckBuyerPresence}
+              className="inline-flex items-center gap-2 border-2 border-primary bg-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {checkingPresence && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+              {checkingPresence ? "Checking buyers…" : `Check selected buyers (${selectedPresenceOrders.length})`}
+            </button>
+            {selectedPresenceOrders.length > 50 && (
+              <span className="text-xs font-bold text-destructive">Select no more than 50 orders.</span>
+            )}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            Requires Playerok Chats to be open. Only a clear online indicator is reported as Online; unavailable or unclear status is Unknown. This check is read-only and sends no messages.
+          </p>
+          {orders.some((order) => order.source === "playerok" && !order.buyerUsername?.trim()) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Some Playerok orders do not have a saved buyer username. Sync those orders again to make them checkable.
+            </p>
+          )}
+          {presenceError && <p role="alert" className="mt-2 text-xs font-bold text-destructive">{presenceError}</p>}
+          {presenceNotice && <p role="status" className="mt-2 text-xs font-bold text-primary">{presenceNotice}</p>}
+        </div>
+      )}
+      {!focusedOrderId &&
+        presenceCheckableOrders.length === 0 &&
+        orders.some((order) => order.source === "playerok") && (
+          <p className="border-b-2 border-border px-5 py-3 text-xs text-muted-foreground">
+            These Playerok orders do not have saved buyer usernames. Sync them again to enable presence checks.
+          </p>
+        )}
+
       {authError && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{authError}</p>}
       {balanceWarning && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-amber-700">{balanceWarning}</p>}
       {balanceSyncError && <p role="alert" className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{balanceSyncError}</p>}
@@ -511,6 +706,14 @@ export function PendingOrders({
             <article key={order.id} className={focusedOrderId ? "grid gap-5 px-5 py-5 md:grid-cols-[minmax(0,1fr)_minmax(280px,auto)] md:items-center" : "grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"}>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
+                  {!focusedOrderId && order.source === "playerok" && order.buyerUsername?.trim() && (
+                    <input
+                      type="checkbox"
+                      checked={selectedPresenceOrderIds.has(order.id)}
+                      onChange={(event) => togglePresenceOrder(order.id, event.target.checked)}
+                      aria-label={`Select buyer ${order.buyerUsername} on order ${order.u7buyOrderId} for a presence check`}
+                    />
+                  )}
                   <Link href={`/orders/${order.id}`} className="truncate font-bold text-foreground underline decoration-border underline-offset-4 hover:text-primary">{order.service}</Link>
                   <span className="border border-border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     {order.platform}
@@ -521,6 +724,23 @@ export function PendingOrders({
                   <span aria-hidden="true">·</span>
                   <span>{order.date}</span>
                 </div>
+                {order.source === "playerok" && (
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span>Buyer: {order.buyerUsername || "username unavailable"}</span>
+                    {buyerPresence[order.id] && (
+                      <span
+                        className={`border px-2 py-0.5 font-bold uppercase tracking-wider ${
+                          buyerPresence[order.id].status === "online"
+                            ? "border-primary/50 bg-primary/10 text-primary"
+                            : "border-border bg-muted/40 text-muted-foreground"
+                        }`}
+                        title={`Checked ${new Date(buyerPresence[order.id].checkedAt).toLocaleString()}`}
+                      >
+                        {buyerPresence[order.id].status === "online" ? "Online" : "Unknown"}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {celebration?.orderId === order.id && (
                   <div className={`mt-4 grid overflow-hidden transition-[grid-template-rows,margin,opacity] duration-300 ease-in motion-reduce:transition-none ${celebrationCollapsing ? "mt-0 grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]"}`} aria-hidden={celebrationCollapsing || undefined}>
                     <div className="min-h-0 overflow-hidden">

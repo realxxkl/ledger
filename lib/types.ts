@@ -14,6 +14,7 @@ export type Entry = {
   u7buyOrderId?: string
   externalOrderId?: string
   source?: string
+  buyerUsername?: string
   vbucksBefore?: number
   vbucksAfter?: number
   orderAmount?: number
