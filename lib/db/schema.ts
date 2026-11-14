@@ -85,6 +85,7 @@ export const entries = pgTable("entries", {
   externalOrderId: text("external_order_id"),
   source: text("source"),
   buyerUsername: text("buyer_username"),
+  waitingSince: text("waiting_since"),
   vbucksBefore: integer("vbucks_before"),
   vbucksAfter: integer("vbucks_after"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

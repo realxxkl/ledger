@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     }
 
     const paidUsd = Number(b.paid) || 0
+    await ensureOrderTrackingSchema()
 
     await db.insert(entries).values({
       service: String(b.service),
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
       feeAmt: s(b.feeAmt),
       paid: s(paidUsd),
       profit: s(b.profit),
+      waitingSince: b.u7buyOrderId ? String(b.date) : null,
       orderAmount: s(b.orderAmount),
       orderCost: s(b.orderCost),
       orderFee: s(b.orderFee),

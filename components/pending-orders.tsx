@@ -182,6 +182,7 @@ export function PendingOrders({
   const [expiredAuthLinks, setExpiredAuthLinks] = useState<Record<number, boolean>>({})
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof ORDER_STATUS_OPTIONS)[number]>("In Progress")
+  const [waitingSort, setWaitingSort] = useState<"newest" | "oldest">("newest")
   const [authUserCodes, setAuthUserCodes] = useState<Record<number, string>>({})
   const [now, setNow] = useState(() => Date.now())
   const [selectedPresenceOrderIds, setSelectedPresenceOrderIds] = useState<Set<string>>(() => new Set())
@@ -266,6 +267,9 @@ export function PendingOrders({
     if (getOrderStatusGroup(entry.orderStatus) !== statusFilter) return false
     const query = search.trim().toLowerCase()
     return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
+  }).sort((a, b) => {
+    const dateOrder = (a.waitingSince ?? a.date).localeCompare(b.waitingSince ?? b.date)
+    return waitingSort === "oldest" ? dateOrder : -dateOrder
   })
   const presenceCheckableOrders = orders.filter(
     (order) => order.source === "playerok" && Boolean(order.buyerUsername?.trim()),
@@ -638,6 +642,13 @@ export function PendingOrders({
             {ORDER_STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
         </label>
+        <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Sort by waiting
+          <select value={waitingSort} onChange={(event) => setWaitingSort(event.target.value as typeof waitingSort)} className="h-10 border-2 border-border bg-background px-3 text-sm font-bold text-foreground outline-none focus:border-primary">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Waiting longest</option>
+          </select>
+        </label>
         <Search className="size-4 text-muted-foreground" aria-hidden="true" />
         <label className="sr-only" htmlFor="order-search">Search orders</label>
         <input id="order-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, product, platform, or status" className="h-10 min-w-0 flex-1 border-2 border-border bg-background px-3 text-sm outline-none focus:border-primary" />
@@ -720,9 +731,20 @@ export function PendingOrders({
                   </span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-                  <span>Order {order.u7buyOrderId}</span>
+                  <span>Order </span>
+                  {order.u7buyOrderId && (order.source === "playerok" || order.platform === "PO") ? (
+                    <a
+                      href={`https://playerok.com/deal/${encodeURIComponent(order.u7buyOrderId)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline decoration-border underline-offset-2 hover:text-primary"
+                      aria-label={`Open Playerok deal ${order.u7buyOrderId}`}
+                    >
+                      {order.u7buyOrderId}
+                    </a>
+                  ) : <span>{order.u7buyOrderId}</span>}
                   <span aria-hidden="true">·</span>
-                  <span>{order.date}</span>
+                  <span>Waiting since {order.waitingSince ?? order.date}</span>
                 </div>
                 {order.source === "playerok" && (
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

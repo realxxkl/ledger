@@ -47,12 +47,30 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     </section>
   )
 
+  const playerokDealUrl =
+    order.u7buyOrderId && (order.source === "playerok" || order.platform === "PO")
+      ? `https://playerok.com/deal/${encodeURIComponent(order.u7buyOrderId)}`
+      : null
+
   return (
     <section className="border-2 border-border bg-card">
       <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-border p-5">
         <div>
           <Link href="/?tab=pending-orders" className="text-xs font-bold uppercase tracking-wider text-primary underline">← All orders</Link>
-          <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">Order {order.u7buyOrderId}</p>
+          <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
+            Order{" "}
+            {playerokDealUrl ? (
+              <a
+                href={playerokDealUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2"
+                aria-label={`Open Playerok deal ${order.u7buyOrderId}`}
+              >
+                {order.u7buyOrderId}
+              </a>
+            ) : order.u7buyOrderId}
+          </p>
           <h2 className="mt-2 font-display text-3xl font-black uppercase tracking-tight">{order.service}</h2>
           <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">{order.platform} · Entry #{order.id}</p>
         </div>
@@ -70,6 +88,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <div className="bg-card p-5">
           <label htmlFor="order-date" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Order date</label>
           <input id="order-date" type="date" value={order.date} disabled={savingDate} onChange={(event) => updateDate(event.target.value)} className="mt-2 block h-10 border-2 border-border bg-background px-3 text-sm font-bold outline-none focus:border-primary disabled:opacity-60" />
+          <p className="mt-3 text-xs text-muted-foreground">Waiting since: {order.waitingSince ?? order.date}</p>
           {savingDate && <p className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground" role="status"><LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Saving date…</p>}
           {dateError && <p role="alert" className="mt-2 text-xs font-bold text-destructive">{dateError}</p>}
         </div>

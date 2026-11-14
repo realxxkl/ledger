@@ -112,6 +112,7 @@ export async function POST(request: NextRequest) {
       id: entries.id,
       orderStatus: entries.orderStatus,
       buyerUsername: entries.buyerUsername,
+      waitingSince: entries.waitingSince,
     })
       .from(entries)
       .where(eq(entries.externalOrderId, orderId))
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
     let alreadyLogged = Boolean(entryId)
     let existingStatus = existing[0]?.orderStatus
     let existingBuyerUsername = existing[0]?.buyerUsername
+    let existingWaitingSince = existing[0]?.waitingSince
     if (!entryId) {
       const inserted = await db.insert(entries).values({
         service: normalizeItemTitle(itemTitle),
@@ -138,6 +140,7 @@ export async function POST(request: NextRequest) {
         externalOrderId: orderId,
         source: "playerok",
         buyerUsername: buyerUsername || null,
+        waitingSince: timestamp.toISOString().slice(0, 10),
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).onConflictDoNothing({ target: entries.externalOrderId }).returning({ id: entries.id })
@@ -148,6 +151,7 @@ export async function POST(request: NextRequest) {
           id: entries.id,
           orderStatus: entries.orderStatus,
           buyerUsername: entries.buyerUsername,
+          waitingSince: entries.waitingSince,
         })
           .from(entries)
           .where(eq(entries.externalOrderId, orderId))
@@ -155,6 +159,7 @@ export async function POST(request: NextRequest) {
         entryId = conflict[0]?.id
         existingStatus = conflict[0]?.orderStatus
         existingBuyerUsername = conflict[0]?.buyerUsername
+        existingWaitingSince = conflict[0]?.waitingSince
         alreadyLogged = Boolean(entryId)
       }
     }
@@ -188,6 +193,7 @@ export async function POST(request: NextRequest) {
         orderFee,
         source: "playerok",
         buyerUsername: buyerUsername || existingBuyerUsername || null,
+        waitingSince: existingWaitingSince || timestamp.toISOString().slice(0, 10),
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).where(eq(entries.id, entryId))

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { entries, presets } from "@/lib/db/schema"
+import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { eq } from "drizzle-orm"
 
 export const runtime = "nodejs"
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
     const orderDate = body.orderTime ? new Date(body.orderTime).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]
     const orderStatusCode = Number(body.orderStatus || 1)
     const orderStatusText = ORDER_STATUS_MAP[orderStatusCode] || `Status ${orderStatusCode}`
+    await ensureOrderTrackingSchema()
 
     // Check if this order is already synced
     const existing = await db
@@ -69,6 +71,7 @@ export async function POST(req: NextRequest) {
       service: productName,
       platform: "U7Buy",
       date: orderDate,
+      waitingSince: orderDate,
       earned: s(earned),
       feePercent: s(feePercent),
       feeAmt: s(feeAmt),
