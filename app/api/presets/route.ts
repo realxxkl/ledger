@@ -13,8 +13,7 @@ export async function POST(req: NextRequest) {
     const b = await req.json()
     const name = String(b?.name || "").trim()
     if (!name) return NextResponse.json({ error: "Missing name" }, { status: 400 })
-    const currency = (b?.currency === 'egp' ? 'egp' : 'usd') as 'usd' | 'egp'
-    await db.insert(presets).values({ name, cost: s(b.cost), currency })
+    await db.insert(presets).values({ name, cost: s(b.cost) })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[v0] POST /api/presets failed:", err)
@@ -28,8 +27,7 @@ export async function PUT(req: NextRequest) {
     const id = Number(b?.id)
     const name = String(b?.name || "").trim()
     if (!id || !name) return NextResponse.json({ error: "Missing preset details" }, { status: 400 })
-    const currency = (b?.currency === "egp" ? "egp" : "usd") as "usd" | "egp"
-    await db.update(presets).set({ name, cost: s(b.cost), currency }).where(eq(presets.id, id))
+    await db.update(presets).set({ name, cost: s(b.cost) }).where(eq(presets.id, id))
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[v0] PUT /api/presets failed:", err)

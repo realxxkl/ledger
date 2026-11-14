@@ -1,4 +1,4 @@
-import { boolean, integer, pgTable, serial, text, numeric, timestamp } from "drizzle-orm/pg-core"
+import { boolean, integer, pgTable, serial, text, numeric, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -82,8 +82,14 @@ export const entries = pgTable("entries", {
   orderAmount: numeric("order_amount").notNull().default("0"),
   orderCost: numeric("order_cost").notNull().default("0"),
   orderFee: numeric("order_fee").notNull().default("0"),
+  externalOrderId: text("external_order_id"),
+  source: text("source"),
+  vbucksBefore: integer("vbucks_before"),
+  vbucksAfter: integer("vbucks_after"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-})
+}, (table) => ({
+  externalOrderIdUnique: uniqueIndex("entries_external_order_id_unique").on(table.externalOrderId),
+}))
 
 export const withdrawals = pgTable("withdrawals", {
   id: serial("id").primaryKey(),
@@ -105,5 +111,4 @@ export const presets = pgTable("presets", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   cost: numeric("cost").notNull().default("0"),
-  currency: text("currency").notNull().default("usd"),
 })

@@ -127,10 +127,17 @@ export function EntriesTable({
                   </td>
                   <td className="px-5 py-3">
                     {e.u7buyOrderId ? (
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-muted-foreground">{e.orderStatus || "-"}</span>
-                        <Link href={`/orders/${e.id}`} className="text-[10px] font-bold uppercase tracking-wider text-primary underline underline-offset-2">Manage</Link>
-                      </div>
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">{e.orderStatus || "-"}</span>
+                          <Link href={`/orders/${e.id}`} className="text-[10px] font-bold uppercase tracking-wider text-primary underline underline-offset-2">Manage</Link>
+                        </div>
+                        {e.vbucksAfter !== undefined && ["completed", "delivered"].includes((e.orderStatus ?? "").trim().toLowerCase()) && (
+                          <span className="mt-1 inline-flex border border-positive/50 bg-positive/10 px-1.5 py-0.5 text-[10px] font-bold text-positive">
+                            {e.vbucksAfter} VBucks
+                          </span>
+                        )}
+                      </>
                     ) : editingStatus === e.id ? (
                       <div className="flex items-center gap-1">
                         <input

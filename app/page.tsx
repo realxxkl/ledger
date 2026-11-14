@@ -51,11 +51,23 @@ export default function Page() {
     )
   }, [data])
 
+  const salesData = useMemo(() => {
+    if (!data) return null
+    return {
+      ...data,
+      entries: data.entries.filter((entry) => {
+        if (entry.source !== "playerok") return true
+        const status = (entry.orderStatus ?? "").trim().toLowerCase()
+        return status === "completed" || status === "delivered"
+      }),
+    }
+  }, [data])
+
   // Apply the date range and platform together so every dashboard statistic,
   // chart, table row, withdrawal fee, and CSV export reflects one selection.
   const filtered = useMemo(() => {
-    if (!data) return null
-    const entries = filterByRange(data.entries, range)
+    if (!data || !salesData) return null
+    const entries = filterByRange(salesData.entries, range)
     const withdrawals = filterByRange(data.withdrawals, range)
     return {
       ...data,
@@ -68,7 +80,7 @@ export default function Page() {
           ? withdrawals.filter((withdrawal) => selectedPlatforms.includes(withdrawal.platform))
           : withdrawals,
     }
-  }, [data, range, selectedPlatforms])
+  }, [data, salesData, range, selectedPlatforms])
 
   // Clicking a chart bar jumps to that month's sales in the table below.
   const handleMonthSelect = (month: string) => {
@@ -198,7 +210,7 @@ export default function Page() {
               )}
               {tab === "withdrawals" && (
                 <>
-                  <SummaryCards data={data} />
+                  <SummaryCards data={salesData ?? data} />
                   <WithdrawalsPanel data={data} onChange={refresh} />
                 </>
               )}

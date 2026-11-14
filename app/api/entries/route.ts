@@ -1,18 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { entries, epicOrderSessions } from "@/lib/db/schema"
+import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
+import { getEpicVBucksBalance } from "@/lib/epic-balance"
+import { refreshEpicSession } from "@/lib/epic-refresh"
 import { eq } from "drizzle-orm"
-
-// Map U7Buy order statuses to display names
-const ORDER_STATUS_MAP: Record<number, string> = {
-  1: "New Order Received",
-  2: "Processing",
-  3: "In Progress",
-  4: "Awaiting Delivery",
-  5: "To Receive",
-  6: "Completed",
-  7: "Cancelled",
-}
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -26,16 +18,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    let paidUsd = Number(b.paid) || 0
-    let exchangeRate: number | undefined
-    let originalCurrency: string | undefined
-
-    // If cost was in EGP, store the exchange rate for audit trail
-    // (The form already converted paidUsd client-side, so we don't convert again)
-    if (b.costCurrency === 'egp' && b.exchangeRate) {
-      exchangeRate = Number(b.exchangeRate)
-      originalCurrency = 'egp'
-    }
+    const paidUsd = Number(b.paid) || 0
 
     await db.insert(entries).values({
       service: String(b.service),
@@ -49,8 +32,6 @@ export async function POST(req: NextRequest) {
       orderAmount: s(b.orderAmount),
       orderCost: s(b.orderCost),
       orderFee: s(b.orderFee),
-      exchangeRate: exchangeRate ? String(exchangeRate) : null,
-      originalCurrency: originalCurrency || null,
       orderStatus: b.orderStatus || null,
       u7buyOrderId: b.u7buyOrderId || null,
     })
@@ -95,16 +76,49 @@ export async function PATCH(req: NextRequest) {
     const isCompleted = ["delivered", "completed"].includes(normalizedStatus)
     const isRefunded = normalizedStatus === "refunded"
     const shouldPurgeEpicSession = isCompleted || isRefunded
+    let vbucksAfter: number | undefined
     if (shouldPurgeEpicSession) {
-      const epicRows = await db.select({ accessToken: epicOrderSessions.accessToken, refreshToken: epicOrderSessions.refreshToken })
+      await ensureOrderTrackingSchema()
+      const epicRows = await db.select({
+        accountId: epicOrderSessions.accountId,
+        accessToken: epicOrderSessions.accessToken,
+        refreshToken: epicOrderSessions.refreshToken,
+        expiresAt: epicOrderSessions.expiresAt,
+      })
         .from(epicOrderSessions).where(eq(epicOrderSessions.orderId, id)).limit(1)
       const epicSession = epicRows[0]
-      if (epicSession?.accessToken || epicSession?.refreshToken) {
+      let accessToken = epicSession?.accessToken
+      let refreshToken = epicSession?.refreshToken
+      if (
+        isCompleted &&
+        epicSession?.expiresAt &&
+        epicSession.expiresAt.getTime() <= Date.now() + 30_000 &&
+        refreshToken
+      ) {
+        try {
+          const refreshed = await refreshEpicSession(id, refreshToken)
+          accessToken = refreshed.accessToken
+          refreshToken = refreshed.refreshToken
+        } catch (error) {
+          console.error(`[Epic] Could not refresh session before final VBucks query for order ${id}`, error)
+          return NextResponse.json({ error: "Epic session could not be refreshed; the order was not completed and the saved session was preserved." }, { status: 502 })
+        }
+      }
+      if (isCompleted && epicSession?.accountId && accessToken) {
+        try {
+          const balance = await getEpicVBucksBalance(epicSession.accountId, accessToken)
+          vbucksAfter = balance.totalVBucks
+        } catch (error) {
+          console.error(`[Epic] Could not record final VBucks balance for order ${id}`, error)
+          return NextResponse.json({ error: "Epic balance could not be retrieved; the order was not completed and the saved session was preserved." }, { status: 502 })
+        }
+      }
+      if (accessToken || refreshToken) {
         const basicToken = process.env.EPIC_BASIC_TOKEN
         if (!basicToken) return NextResponse.json({ error: "Epic credentials are not configured; session was not purged" }, { status: 503 })
         try {
-          if (epicSession.refreshToken) await revokeEpicToken(epicSession.refreshToken, "refresh_token", basicToken)
-          if (epicSession.accessToken) await revokeEpicToken(epicSession.accessToken, "access_token", basicToken)
+          if (refreshToken) await revokeEpicToken(refreshToken, "refresh_token", basicToken)
+          if (accessToken) await revokeEpicToken(accessToken, "access_token", basicToken)
         } catch (error) {
           console.error(`[Epic] Could not revoke session for order ${id}`, error instanceof Error ? error.message : "unknown error")
           return NextResponse.json({ error: "Epic access could not be revoked, so the order status was not updated and the saved session was preserved." }, { status: 502 })
@@ -127,6 +141,7 @@ export async function PATCH(req: NextRequest) {
             paid: String(orderCost),
             feeAmt: String(orderFee),
             profit: String(orderAmount - orderCost - orderFee),
+            ...(vbucksAfter !== undefined ? { vbucksAfter } : {}),
             ...(date ? { date } : {}),
           }).where(eq(entries.id, id))
           await tx.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, id))

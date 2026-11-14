@@ -12,6 +12,10 @@ export type Entry = {
   originalCurrency?: string
   orderStatus?: string
   u7buyOrderId?: string
+  externalOrderId?: string
+  source?: string
+  vbucksBefore?: number
+  vbucksAfter?: number
   orderAmount?: number
   orderCost?: number
   orderFee?: number
@@ -35,7 +39,6 @@ export type ServicePreset = {
   id: string
   name: string
   cost: number
-  currency?: 'usd' | 'egp'
 }
 
 export type LedgerData = {

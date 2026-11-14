@@ -60,6 +60,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
           {sessionExists && <Check className="size-3.5" aria-hidden="true" />}
           {getOrderStatusLabel(order.orderStatus, Boolean(sessionExists))}
         </span>
+        {completed && order.vbucksAfter !== undefined && (
+          <span className="inline-flex items-center border-2 border-positive/50 bg-positive/10 px-3 py-2 text-xs font-bold uppercase tracking-wider text-positive">
+            Final balance: {order.vbucksAfter} VBucks
+          </span>
+        )}
       </header>
       <div className="grid gap-px bg-border sm:grid-cols-2">
         <div className="bg-card p-5">
@@ -84,6 +89,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <Metric label="Order cost" value={currency(order.orderCost ?? 0)} tone="negative" />
         <Metric label="Platform fee" value={currency(order.orderFee ?? 0)} tone="fee" />
         <Metric label={orderStatusGroup === "In Progress" ? "Profit to be made" : "Profit"} value={currency(displayedProfit)} tone="positive" />
+        {order.vbucksBefore !== undefined && <Metric label="VBucks before fulfillment" value={`${order.vbucksBefore} VBucks`} />}
       </div>
       <div className="border-t-2 border-border p-5">
         <PendingOrders

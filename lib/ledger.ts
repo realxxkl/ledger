@@ -1,5 +1,6 @@
 import { db } from "@/lib/db"
 import { entries, withdrawals, feeConfig, presets, epicOrderSessions } from "@/lib/db/schema"
+import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { desc } from "drizzle-orm"
 
 const DEFAULT_PRESETS = [
@@ -13,6 +14,7 @@ const DEFAULT_PRESETS = [
 const num = (v: unknown) => Number(v ?? 0)
 
 export async function getLedger() {
+  await ensureOrderTrackingSchema()
   // Seed default presets once if the table is empty
   const presetRows = await db.select().from(presets)
   if (presetRows.length === 0) {
@@ -46,7 +48,11 @@ export async function getLedger() {
       exchangeRate: e.exchangeRate ? num(e.exchangeRate) : undefined,
       originalCurrency: e.originalCurrency || undefined,
       orderStatus: e.orderStatus || undefined,
-      u7buyOrderId: e.u7buyOrderId || undefined,
+      u7buyOrderId: e.externalOrderId || e.u7buyOrderId || undefined,
+      externalOrderId: e.externalOrderId || undefined,
+      source: e.source || undefined,
+      vbucksBefore: e.vbucksBefore ?? undefined,
+      vbucksAfter: e.vbucksAfter ?? undefined,
       orderAmount: num(e.orderAmount),
       orderCost: num(e.orderCost),
       orderFee: num(e.orderFee),
@@ -75,7 +81,6 @@ export async function getLedger() {
       id: String(p.id),
       name: p.name,
       cost: num(p.cost),
-      currency: (p.currency as 'usd' | 'egp') || 'usd',
     })),
   }
 }

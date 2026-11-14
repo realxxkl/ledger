@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { saveEpicSession } from "@/lib/epic-sessions"
+import { getEpicVBucksBalance } from "@/lib/epic-balance"
+import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
+import { db } from "@/lib/db"
+import { entries } from "@/lib/db/schema"
+import { eq } from "drizzle-orm"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 const ACCOUNT_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/public/account"
@@ -38,15 +43,27 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     })
     const profileData = await profileResponse.json()
+    const numericOrderId = Number(orderId)
     await saveEpicSession({
-      orderId: Number(orderId),
+      orderId: numericOrderId,
       accountId: tokenData.account_id,
       displayName: profileData.displayName || tokenData.displayName || "Epic account",
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token || undefined,
       expiresIn: tokenData.expires_in,
     })
-    return NextResponse.json({ status: "completed", displayName: profileData.displayName || tokenData.displayName, accountId: tokenData.account_id })
+    let vbucksBefore: number | undefined
+    let balanceWarning: string | undefined
+    try {
+      await ensureOrderTrackingSchema()
+      const balance = await getEpicVBucksBalance(tokenData.account_id, tokenData.access_token)
+      vbucksBefore = balance.totalVBucks
+      await db.update(entries).set({ vbucksBefore }).where(eq(entries.id, numericOrderId))
+    } catch (error) {
+      console.error(`[Epic] Could not record starting VBucks balance for order ${numericOrderId}`, error)
+      balanceWarning = "Epic account connected, but the starting VBucks balance could not be saved."
+    }
+    return NextResponse.json({ status: "completed", displayName: profileData.displayName || tokenData.displayName, accountId: tokenData.account_id, vbucksBefore, balanceWarning })
   } catch (error) {
     console.error("[v0] Epic authorization status failed:", error)
     return NextResponse.json({ status: "error", error: "Unable to check Epic authorization" }, { status: 500 })

@@ -27,7 +27,9 @@ export async function refreshEpicSession(orderId: number, refreshToken: string) 
     })
     const raw = await response.text()
     let data: { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; errorMessage?: string; errorCode?: string } = {}
-    try { data = raw ? JSON.parse(raw) : {} } catch {}
+    try { data = raw ? JSON.parse(raw) : {} } catch {
+      console.error(`[Epic] Refresh response was not valid JSON for order ${orderId}`)
+    }
     if (!response.ok || !data.access_token) {
       console.error(`[Epic] Refresh rejected for order ${orderId}`, { status: response.status, error: data.error, errorCode: data.errorCode })
       throw new Error(data.errorMessage || data.error || `Epic refresh failed with HTTP ${response.status}`)

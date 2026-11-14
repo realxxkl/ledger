@@ -7,12 +7,35 @@ export const dynamic = "force-dynamic"
 
 const s = (v: unknown) => String(Number(v) || 0)
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const parsed = await req.json()
-    if (!parsed?.entries || !parsed?.feeConfig || !parsed?.withdrawals) {
+    const parsed: unknown = await req.json()
+    if (!isRecord(parsed)) {
       return NextResponse.json({ error: "Invalid backup file" }, { status: 400 })
     }
+    const importedEntries = parsed.entries
+    const importedWithdrawals = parsed.withdrawals
+    const importedFeeConfig = parsed.feeConfig
+    const importedPresets = parsed.servicePresets
+    if (
+      !Array.isArray(importedEntries) ||
+      !importedEntries.every(isRecord) ||
+      !Array.isArray(importedWithdrawals) ||
+      !importedWithdrawals.every(isRecord) ||
+      !isRecord(importedFeeConfig) ||
+      !Object.values(importedFeeConfig).every(isRecord) ||
+      (importedPresets !== undefined &&
+        (!Array.isArray(importedPresets) ||
+          !importedPresets.every((preset) => typeof preset === "string" || isRecord(preset))))
+    ) {
+      return NextResponse.json({ error: "Invalid backup file" }, { status: 400 })
+    }
+    const feeConfigData = importedFeeConfig as Record<string, Record<string, unknown>>
+    const servicePresets = (importedPresets ?? []) as Array<string | Record<string, unknown>>
 
     await db.transaction(async (tx) => {
       // Wipe everything first
@@ -21,9 +44,9 @@ export async function POST(req: NextRequest) {
       await tx.delete(feeConfig)
       await tx.delete(presets)
 
-      if (Array.isArray(parsed.entries) && parsed.entries.length) {
+      if (importedEntries.length) {
         await tx.insert(entries).values(
-          parsed.entries.map((e: any) => ({
+          importedEntries.map((e) => ({
             service: String(e.service ?? ""),
             platform: String(e.platform ?? ""),
             date: String(e.date ?? ""),
@@ -36,9 +59,9 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      if (Array.isArray(parsed.withdrawals) && parsed.withdrawals.length) {
+      if (importedWithdrawals.length) {
         await tx.insert(withdrawals).values(
-          parsed.withdrawals.map((w: any) => ({
+          importedWithdrawals.map((w) => ({
             platform: String(w.platform ?? ""),
             date: String(w.date ?? ""),
             amount: s(w.amount),
@@ -47,7 +70,7 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const feeRows = Object.entries(parsed.feeConfig as Record<string, any>).map(
+      const feeRows = Object.entries(feeConfigData).map(
         ([key, cfg]) => ({
           key: key.toLowerCase(),
           name: String(cfg?.name ?? key),
@@ -57,8 +80,7 @@ export async function POST(req: NextRequest) {
       )
       if (feeRows.length) await tx.insert(feeConfig).values(feeRows)
 
-      const parsedPresets = Array.isArray(parsed.servicePresets) ? parsed.servicePresets : []
-      const presetRows = parsedPresets.map((p: any) =>
+      const presetRows = servicePresets.map((p) =>
         typeof p === "string"
           ? { name: p, cost: "0" }
           : { name: String(p?.name ?? ""), cost: s(p?.cost) },

@@ -112,18 +112,15 @@ function FeesSection({ data, onChange }: { data: LedgerData; onChange: () => voi
 function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => void | Promise<unknown> }) {
   const [name, setName] = useState("")
   const [cost, setCost] = useState("")
-  const [currency, setCurrency] = useState<'usd' | 'egp'>('usd')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState("")
   const [editingCost, setEditingCost] = useState("")
-  const [editingCurrency, setEditingCurrency] = useState<'usd' | 'egp'>('usd')
   const [pendingAction, setPendingAction] = useState<string | null>(null)
 
   const startEdit = (preset: (typeof data.servicePresets)[number]) => {
     setEditingId(preset.id)
     setEditingName(preset.name)
     setEditingCost(String(preset.cost))
-    setEditingCurrency(preset.currency === 'egp' ? 'egp' : 'usd')
   }
 
   const saveEdit = async () => {
@@ -134,7 +131,6 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
         id: Number(editingId),
         name: editingName.trim(),
         cost: Number(editingCost) || 0,
-        currency: editingCurrency,
       })
       setEditingId(null)
       await onChange()
@@ -148,10 +144,9 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
     if (!name.trim()) return
     setPendingAction("Adding service preset")
     try {
-      await apiSend("/api/presets", "POST", { name: name.trim(), cost: Number(cost) || 0, currency })
+      await apiSend("/api/presets", "POST", { name: name.trim(), cost: Number(cost) || 0 })
       setName("")
       setCost("")
-      setCurrency('usd')
       await onChange()
     } finally {
       setPendingAction(null)
@@ -173,18 +168,10 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
       <div className="border-b-2 border-border px-5 py-4">
         <h2 className="font-display text-xl font-black uppercase tracking-tight">Service Presets</h2>
       </div>
-      <form onSubmit={add} className="grid grid-cols-4 gap-3 border-b-2 border-border p-5">
+      <form onSubmit={add} className="grid grid-cols-3 gap-3 border-b-2 border-border p-5">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Service name" className={`${inputCls} col-span-2`} />
-        <input type="number" step="0.01" min="0" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Cost" className={inputCls} />
-        <select
-          value={currency}
-          onChange={(e) => setCurrency(e.target.value as 'usd' | 'egp')}
-          className={inputCls}
-        >
-          <option value="usd">USD</option>
-          <option value="egp">EGP</option>
-        </select>
-        <button type="submit" disabled={pendingAction !== null} className={`${primaryBtn} col-span-4 justify-self-start`}>
+        <input type="number" step="0.01" min="0" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="Cost (USD)" className={inputCls} />
+        <button type="submit" disabled={pendingAction !== null} className={`${primaryBtn} col-span-3 justify-self-start`}>
           {(pendingAction === "Adding service preset" || pendingAction === "Saving service preset") ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}
           {pendingAction === "Adding service preset" ? "Adding…" : pendingAction === "Saving service preset" ? "Saving…" : "Add Preset"}
         </button>
@@ -198,13 +185,9 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
           {data.servicePresets.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-4 px-5 py-3 text-sm">
               {editingId === p.id ? (
-                <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_120px_100px_auto_auto]">
+                <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_120px_auto_auto]">
                   <input value={editingName} onChange={(e) => setEditingName(e.target.value)} className={inputCls} aria-label="Product name" />
                   <input type="number" min="0" step="0.01" value={editingCost} onChange={(e) => setEditingCost(e.target.value)} className={inputCls} aria-label="Product cost" />
-                  <select value={editingCurrency} onChange={(e) => setEditingCurrency(e.target.value as 'usd' | 'egp')} className={inputCls} aria-label="Product currency">
-                    <option value="usd">USD</option>
-                    <option value="egp">EGP</option>
-                  </select>
                   <button type="button" disabled={pendingAction !== null} onClick={saveEdit} className={primaryBtn}>
                     {pendingAction === "Saving service preset" && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                     {pendingAction ? "Saving…" : "Save"}
@@ -217,7 +200,7 @@ function PresetsSection({ data, onChange }: { data: LedgerData; onChange: () => 
                   <span className="font-bold">{p.name}</span>
                   <div className="flex items-center gap-2">
                     <span className="text-muted-foreground">
-                      {p.cost.toFixed(2)} {p.currency?.toUpperCase() || 'USD'}
+                      {currency(p.cost)}
                     </span>
                     <button
                       type="button"

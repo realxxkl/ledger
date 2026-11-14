@@ -11,7 +11,7 @@ const fetcher = async (url: string): Promise<LedgerData> => {
 
 export function useLedger() {
   const { data, error, isLoading, mutate } = useSWR<LedgerData>("/api/ledger", fetcher, {
-    revalidateOnFocus: false,
+    revalidateOnFocus: true,
   })
   return { data, error, isLoading, mutate }
 }

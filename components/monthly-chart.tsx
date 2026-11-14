@@ -12,10 +12,17 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import type { Entry, DateRange } from "@/lib/types"
+import type { Entry, DateRange, DailyPoint, MonthlyPoint } from "@/lib/types"
 import { currency, toMonthly, toDaily } from "@/lib/types"
 
 type Metric = "earned" | "profit" | "fees"
+type ChartTooltipPayload = { dataKey?: string | number; name?: string | number; value?: unknown }
+type ChartTooltipProps = { active?: boolean; payload?: ChartTooltipPayload[]; label?: string | number }
+type ChartClickPayload = {
+  date?: string
+  month?: string
+  payload?: { date?: string; month?: string }
+}
 
 const METRICS: { id: Metric; label: string }[] = [
   { id: "earned", label: "Earned" },
@@ -23,15 +30,15 @@ const METRICS: { id: Metric; label: string }[] = [
   { id: "fees", label: "Fees" },
 ]
 
-function ChartTooltip({ active, payload, label }: any) {
+function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null
   return (
     <div className="border-2 border-primary bg-card px-3 py-2 text-xs">
       <p className="mb-1 font-bold uppercase tracking-wider text-foreground">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <p key={p.dataKey} className="flex items-center justify-between gap-4 text-muted-foreground">
           <span className="uppercase tracking-wider">{p.name}</span>
-          <span className="font-bold text-foreground">{currency(p.value)}</span>
+          <span className="font-bold text-foreground">{currency(Number(p.value))}</span>
         </p>
       ))}
       <p className="mt-1.5 border-t border-border pt-1.5 text-[10px] uppercase tracking-wider text-primary">
@@ -66,7 +73,7 @@ export function MonthlyChart({
     return isDaily ? toDaily(entries) : toMonthly(entries)
   }, [entries, isDaily])
 
-  const handleBarClick = (payload: any) => {
+  const handleBarClick = (payload: ChartClickPayload) => {
     if (isDaily) {
       // For daily view, convert date (YYYY-MM-DD) to month (YYYY-MM)
       const date = payload?.date ?? payload?.payload?.date
@@ -110,7 +117,7 @@ export function MonthlyChart({
       ) : (
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <ComposedChart<MonthlyPoint | DailyPoint> data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border)" />
               <XAxis
                 dataKey="label"
@@ -135,7 +142,7 @@ export function MonthlyChart({
                 className="cursor-pointer"
               >
                 {data.map((m) => (
-                  <Cell key={isDaily ? (m as any).date : (m as any).month} className="cursor-pointer" />
+                  <Cell key={isDaily ? (m as DailyPoint).date : (m as MonthlyPoint).month} className="cursor-pointer" />
                 ))}
               </Bar>
               <Line

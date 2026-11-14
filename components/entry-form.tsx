@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState } from "react"
 import { LoaderCircle, Plus } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
@@ -11,6 +11,17 @@ const today = () => new Date().toISOString().slice(0, 10)
 const inputCls =
   "w-full border-2 border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-primary"
 const labelCls = "text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+
+type EntryPayload = {
+  service: string
+  platform: string
+  date: string
+  earned: number
+  feePercent: number
+  feeAmt: number
+  paid: number
+  profit: number
+}
 
 export function EntryForm({
   data,
@@ -29,8 +40,6 @@ export function EntryForm({
   const [paid, setPaid] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const [exchangeRate, setExchangeRate] = useState<number | null>(null)
-  const [exchangeRateLoading, setExchangeRateLoading] = useState(false)
 
   const fee = data.feeConfig[platform]
   const earnedNum = Number(earned) || 0
@@ -41,42 +50,12 @@ export function EntryForm({
     [earnedNum, feePercent, fee],
   )
 
-  // Calculate the USD cost: if EGP preset is selected and we have an exchange rate, convert; otherwise use paid as USD
-  const paidUsd = useMemo(() => {
-    const selectedPreset = presetNames.find((p) => p.name === service)
-    if (selectedPreset?.currency === 'egp' && exchangeRate) {
-      return paidNum / exchangeRate
-    }
-    return paidNum
-  }, [paidNum, exchangeRate, service, presetNames])
+  const profit = earnedNum - feeAmt - paidNum
 
-  const profit = earnedNum - feeAmt - paidUsd
-
-  const onSelectService = async (name: string) => {
+  const onSelectService = (name: string) => {
     setService(name)
     const preset = presetNames.find((p) => p.name === name)
-    if (preset) {
-      setPaid(String(preset.cost))
-      // If preset is in EGP, fetch the exchange rate
-      if (preset.currency === 'egp') {
-        setExchangeRateLoading(true)
-        try {
-          const res = await fetch('/api/exchange-rate')
-          const data = await res.json()
-          if (data.rate) {
-            setExchangeRate(data.rate)
-          }
-        } catch (err) {
-          console.error('[v0] Failed to fetch exchange rate:', err)
-        } finally {
-          setExchangeRateLoading(false)
-        }
-      } else {
-        setExchangeRate(null)
-      }
-    } else {
-      setExchangeRate(null)
-    }
+    if (preset) setPaid(String(preset.cost))
   }
 
   const submit = async (e: React.FormEvent) => {
@@ -88,22 +67,15 @@ export function EntryForm({
     }
     setSaving(true)
     try {
-      const selectedPreset = presetNames.find((p) => p.name === service)
-      const payload: any = {
+      const payload: EntryPayload = {
         service,
         platform: fee?.name ?? platform,
         date,
         earned: earnedNum,
         feePercent,
         feeAmt,
-        paid: paidUsd,
+        paid: paidNum,
         profit,
-      }
-
-      // If preset was in EGP and we have an exchange rate, pass it along
-      if (selectedPreset?.currency === 'egp' && exchangeRate) {
-        payload.costCurrency = 'egp'
-        payload.exchangeRate = exchangeRate
       }
 
       await apiSend("/api/entries", "POST", payload)
@@ -111,7 +83,6 @@ export function EntryForm({
       setEarned("")
       setPaid("")
       setDate(today())
-      setExchangeRate(null)
       await onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save")
@@ -214,15 +185,7 @@ export function EntryForm({
       <div className="flex flex-col gap-1 border-2 border-border bg-background px-4 py-3 text-sm">
         <Row label="Gross earned" value={currency(earnedNum)} />
         <Row label="Per-sale fee" value={`-${currency(feeAmt)}`} tone="text-negative" />
-        {exchangeRate ? (
-          <Row
-            label="Cost (EGP → USD)"
-            value={`${Number(paid).toFixed(2)} EGP ÷ ${exchangeRate.toFixed(4)} = ${currency(paidUsd)}`}
-            tone="text-muted-foreground"
-          />
-        ) : (
-          <Row label="Other costs" value={`-${currency(paidUsd)}`} tone="text-negative" />
-        )}
+        <Row label="Other costs" value={`-${currency(paidNum)}`} tone="text-negative" />
         <div className="mt-1 border-t border-border pt-1.5">
           <Row
             label="Profit"
@@ -235,7 +198,6 @@ export function EntryForm({
 
       {error && <p className="text-sm uppercase tracking-wider text-negative">{error}</p>}
 
-      {exchangeRateLoading && <p className="inline-flex items-center gap-2 text-xs text-muted-foreground" role="status"><LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Checking the current exchange rate…</p>}
       <button
         type="submit"
         disabled={saving}

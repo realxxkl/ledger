@@ -128,6 +128,9 @@ export function PendingOrders({
     ))
   }, [epicSessions])
   const [authError, setAuthError] = useState("")
+  const [balanceWarning, setBalanceWarning] = useState("")
+  const [balanceSyncError, setBalanceSyncError] = useState("")
+  const [refreshingBalanceOrderId, setRefreshingBalanceOrderId] = useState<string | null>(null)
   const [epicAccounts, setEpicAccounts] = useState<Record<number, string>>(
     () => Object.fromEntries((epicSessions ?? []).filter((session) => session.accessTokenStored).map((session) => [Number(session.orderId), session.displayName])),
   )
@@ -265,9 +268,25 @@ export function PendingOrders({
     await handleStatusChange(order, "Completed")
   }
 
+  async function handleRefreshBalance(order: Entry) {
+    setRefreshingBalanceOrderId(order.id)
+    setBalanceSyncError("")
+    try {
+      const response = await fetch(`/api/orders/${order.id}/sync-balance`, { method: "POST" })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || "Could not refresh the Epic balance")
+      await onChange()
+    } catch (error) {
+      setBalanceSyncError(error instanceof Error ? error.message : "Could not refresh the Epic balance")
+    } finally {
+      setRefreshingBalanceOrderId(null)
+    }
+  }
+
   async function handleGenerateLoginLink(order: Entry) {
     if (!order.u7buyOrderId) return
     setAuthError("")
+    setBalanceWarning("")
     activeAuthOrderIdRef.current = order.u7buyOrderId
     setGeneratingAuthLinkOrderId(order.u7buyOrderId)
     try {
@@ -305,6 +324,7 @@ export function PendingOrders({
         }
         if (status.status === "completed") {
           setEpicAccounts((current) => ({ ...current, [Number(order.id)]: status.displayName || "Epic account" }))
+          setBalanceWarning(status.balanceWarning || "")
           setAuthError("")
           activeAuthOrderIdRef.current = null
           setGeneratingAuthLinkOrderId(null)
@@ -452,7 +472,7 @@ export function PendingOrders({
           <button
             type="submit"
             disabled={isSaving}
-            className="h-10 border-[2px] border-primary bg-primary px-4 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-10 items-center justify-center gap-2 border-[2px] border-primary bg-primary px-4 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
             {isSaving ? "Saving…" : "Add order"}
@@ -474,6 +494,8 @@ export function PendingOrders({
       </div>}
 
       {authError && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{authError}</p>}
+      {balanceWarning && <p className="border-b-2 border-border px-5 py-3 text-xs font-bold text-amber-700">{balanceWarning}</p>}
+      {balanceSyncError && <p role="alert" className="border-b-2 border-border px-5 py-3 text-xs font-bold text-destructive">{balanceSyncError}</p>}
 
       {orders.length === 0 ? (
         <div className="flex flex-col items-center gap-3 px-5 py-14 text-center">
@@ -516,6 +538,20 @@ export function PendingOrders({
                   {epicAccounts[Number(order.id)] ? (
                     <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5 border border-primary/50 bg-primary/10 px-2 py-1 text-primary"><Check className="size-3" aria-hidden="true" />Authenticated as {epicAccounts[Number(order.id)]}</span>
+                      {order.vbucksBefore !== undefined && (
+                        <span className="inline-flex items-center border border-primary/50 bg-primary/10 px-2 py-1 text-primary">
+                          Current balance: {order.vbucksBefore} VBucks
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={refreshingBalanceOrderId === order.id}
+                        onClick={() => handleRefreshBalance(order)}
+                        className="inline-flex items-center gap-1.5 border border-border px-2 py-1 transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {refreshingBalanceOrderId === order.id && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                        {order.vbucksBefore === undefined ? "Fetch balance" : "Refresh balance"}
+                      </button>
                       {authUserCodes[Number(order.id)] && <span>User code: {authUserCodes[Number(order.id)]}</span>}
                       <button type="button" disabled={generatingAuthLinkOrderId === order.u7buyOrderId} onClick={() => handleGenerateLoginLink(order)} className="inline-flex items-center gap-2 border-2 border-border px-3 py-1.5 text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60">
                         {generatingAuthLinkOrderId === order.u7buyOrderId && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
@@ -543,6 +579,13 @@ export function PendingOrders({
                       </div>
                     )
                   })()}
+                  {!epicAccounts[Number(order.id)] &&
+                    authLinks[Number(order.id)]?.expiresAt > now &&
+                    authUserCodes[Number(order.id)] && (
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        Epic verification code: <span className="text-foreground">{authUserCodes[Number(order.id)]}</span>
+                      </p>
+                    )}
                   {epicAccounts[Number(order.id)] && (
                     <>
                       <div className="flex w-full max-w-xl gap-2">
