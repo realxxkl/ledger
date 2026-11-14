@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { Check, LoaderCircle, PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
-import { currency } from "@/lib/types"
+import { currency, formatWaitingSince } from "@/lib/types"
 import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-completion-dialog"
 
 const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
@@ -268,7 +268,9 @@ export function PendingOrders({
     const query = search.trim().toLowerCase()
     return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
   }).sort((a, b) => {
-    const dateOrder = (a.waitingSince ?? a.date).localeCompare(b.waitingSince ?? b.date)
+    const aWaitingTime = Date.parse(a.waitingSince ?? a.date)
+    const bWaitingTime = Date.parse(b.waitingSince ?? b.date)
+    const dateOrder = aWaitingTime - bWaitingTime
     return waitingSort === "oldest" ? dateOrder : -dateOrder
   })
   const presenceCheckableOrders = orders.filter(
@@ -744,7 +746,7 @@ export function PendingOrders({
                     </a>
                   ) : <span>{order.u7buyOrderId}</span>}
                   <span aria-hidden="true">·</span>
-                  <span>Waiting since {order.waitingSince ?? order.date}</span>
+                  <span>Waiting since {formatWaitingSince(order.waitingSince)}</span>
                 </div>
                 {order.source === "playerok" && (
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

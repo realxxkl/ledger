@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
         externalOrderId: orderId,
         source: "playerok",
         buyerUsername: buyerUsername || null,
-        waitingSince: timestamp.toISOString().slice(0, 10),
+        waitingSince: timestamp.toISOString(),
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).onConflictDoNothing({ target: entries.externalOrderId }).returning({ id: entries.id })
@@ -193,7 +193,10 @@ export async function POST(request: NextRequest) {
         orderFee,
         source: "playerok",
         buyerUsername: buyerUsername || existingBuyerUsername || null,
-        waitingSince: existingWaitingSince || timestamp.toISOString().slice(0, 10),
+        waitingSince:
+          existingWaitingSince && !/^\d{4}-\d{2}-\d{2}$/.test(existingWaitingSince)
+            ? existingWaitingSince
+            : timestamp.toISOString(),
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).where(eq(entries.id, entryId))

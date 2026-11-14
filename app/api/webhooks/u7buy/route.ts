@@ -35,7 +35,12 @@ export async function POST(req: NextRequest) {
     const orderId = String(body.orderId)
     const productName = String(body.productName)
     const earned = Number(body.totalAmount || body.subTotal || 0)
-    const orderDate = body.orderTime ? new Date(body.orderTime).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]
+    const orderTimestamp = body.orderTime ? new Date(body.orderTime) : new Date()
+    if (Number.isNaN(orderTimestamp.getTime())) {
+      return NextResponse.json({ error: "Invalid order time" }, { status: 400 })
+    }
+    const waitingSince = orderTimestamp.toISOString()
+    const orderDate = waitingSince.slice(0, 10)
     const orderStatusCode = Number(body.orderStatus || 1)
     const orderStatusText = ORDER_STATUS_MAP[orderStatusCode] || `Status ${orderStatusCode}`
     await ensureOrderTrackingSchema()
@@ -71,7 +76,7 @@ export async function POST(req: NextRequest) {
       service: productName,
       platform: "U7Buy",
       date: orderDate,
-      waitingSince: orderDate,
+      waitingSince,
       earned: s(earned),
       feePercent: s(feePercent),
       feeAmt: s(feeAmt),

@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Check, LoaderCircle } from "lucide-react"
 import { useState } from "react"
 import { useLedger } from "@/lib/use-ledger"
-import { currency } from "@/lib/types"
+import { currency, formatWaitingSince } from "@/lib/types"
 import { getOrderStatusGroup, getOrderStatusLabel, PendingOrders } from "@/components/pending-orders"
 import { LoadingScreen } from "@/components/loading-screen"
 
@@ -88,7 +88,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         <div className="bg-card p-5">
           <label htmlFor="order-date" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Order date</label>
           <input id="order-date" type="date" value={order.date} disabled={savingDate} onChange={(event) => updateDate(event.target.value)} className="mt-2 block h-10 border-2 border-border bg-background px-3 text-sm font-bold outline-none focus:border-primary disabled:opacity-60" />
-          <p className="mt-3 text-xs text-muted-foreground">Waiting since: {order.waitingSince ?? order.date}</p>
+          <p className="mt-3 text-xs text-muted-foreground">Waiting since: {formatWaitingSince(order.waitingSince)}</p>
           {savingDate && <p className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground" role="status"><LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Saving date…</p>}
           {dateError && <p role="alert" className="mt-2 text-xs font-bold text-destructive">{dateError}</p>}
         </div>

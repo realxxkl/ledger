@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       feeAmt: s(b.feeAmt),
       paid: s(paidUsd),
       profit: s(b.profit),
-      waitingSince: b.u7buyOrderId ? String(b.date) : null,
+      waitingSince: b.u7buyOrderId ? new Date().toISOString() : null,
       orderAmount: s(b.orderAmount),
       orderCost: s(b.orderCost),
       orderFee: s(b.orderFee),

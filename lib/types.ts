@@ -64,6 +64,21 @@ export type LedgerData = {
 export const currency = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" })
 
+export function formatWaitingSince(value?: string) {
+  if (!value) return "Unknown"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value} (time unavailable)`
+
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return value
+  return timestamp.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
 export type DateRange = { from: string; to: string }
 
 // Filter a list of items with a `date` (YYYY-MM-DD) field by an inclusive range.
