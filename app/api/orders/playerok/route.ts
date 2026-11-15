@@ -78,7 +78,8 @@ export async function POST(request: NextRequest) {
     const orderId = typeof body.orderId === "string" ? body.orderId.trim() : ""
     const itemTitle = typeof body.itemTitle === "string" ? body.itemTitle.trim() : ""
     const buyerUsername = typeof body.buyerUsername === "string" ? body.buyerUsername.trim() : ""
-    const status = body.status
+    const status = typeof body.status === "string" ? body.status.toUpperCase() : ""
+    const isRefunded = status === "REFUNDED" || status === "REFUND"
     const price = Number(body.price)
     const currency = typeof body.currency === "string" ? body.currency.toUpperCase() : "USD"
     const timestampValue = typeof body.timestamp === "string" ? body.timestamp : ""
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
     if (
       !orderId ||
       !itemTitle ||
-      !["PAID", "IN_PROGRESS", "PENDING"].includes(String(status)) ||
+      !["PAID", "IN_PROGRESS", "PENDING", "REFUNDED", "REFUND"].includes(status) ||
       !["USD", "RUB"].includes(currency) ||
       !Number.isFinite(price) ||
       price < 0 ||
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
         feeAmt: "0",
         paid: "0",
         profit: "0",
-        orderStatus: "New Order Received",
+        orderStatus: isRefunded ? "Refunded" : "New Order Received",
         orderAmount: ledgerAmount,
         orderCost,
         orderFee,
@@ -169,12 +170,16 @@ export async function POST(request: NextRequest) {
     if (alreadyLogged) {
       const normalizedStatus = (existingStatus ?? "").trim().toLowerCase()
       const isCompleted = normalizedStatus === "completed" || normalizedStatus === "delivered"
-      const preserveTerminalStatus = isCompleted || normalizedStatus === "refunded" || normalizedStatus === "cancelled"
-      const nextStatus = preserveTerminalStatus ? existingStatus! : "New Order Received"
-      const earned = isCompleted ? ledgerAmount : "0"
-      const paid = isCompleted ? orderCost : "0"
-      const feeAmt = isCompleted ? orderFee : "0"
-      const profit = isCompleted
+      const isExistingRefunded = normalizedStatus === "refunded"
+      const preserveTerminalStatus = isCompleted || isExistingRefunded || normalizedStatus === "cancelled"
+      const nextStatus = isRefunded
+        ? "Refunded"
+        : preserveTerminalStatus ? existingStatus! : "New Order Received"
+      const remainsCompleted = isCompleted && !isRefunded
+      const earned = remainsCompleted ? ledgerAmount : "0"
+      const paid = remainsCompleted ? orderCost : "0"
+      const feeAmt = remainsCompleted ? orderFee : "0"
+      const profit = remainsCompleted
         ? String(Number(ledgerAmount) - Number(orderCost) - Number(orderFee))
         : "0"
 
