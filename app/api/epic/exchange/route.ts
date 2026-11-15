@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     if (shouldRefresh && account.refreshToken) {
       try {
-        const refreshed = await refreshEpicSession(orderId, account.refreshToken)
+        const refreshed = await refreshEpicSession(orderId)
         accessToken = refreshed.accessToken
         account = {
           ...account,
@@ -71,7 +71,10 @@ export async function POST(request: NextRequest) {
     if (tokenRejected && account.refreshToken) {
       try {
         console.log(`[Epic] Order ${orderId}: access token rejected, refreshing session`)
-        const refreshed = await refreshEpicSession(orderId, account.refreshToken)
+        const refreshed = await refreshEpicSession(orderId, {
+          force: true,
+          rejectedAccessToken: accessToken,
+        })
         accessToken = refreshed.accessToken
         result = await requestExchange(accessToken)
       } catch (refreshError) {

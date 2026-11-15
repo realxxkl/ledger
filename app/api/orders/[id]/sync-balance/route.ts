@@ -41,7 +41,7 @@ export async function POST(
       epicSession.refreshToken &&
       (!accessToken || (epicSession.expiresAt && epicSession.expiresAt.getTime() <= Date.now() + 30_000))
     ) {
-      const refreshed = await refreshEpicSession(orderId, epicSession.refreshToken)
+      const refreshed = await refreshEpicSession(orderId)
       accessToken = refreshed.accessToken
     }
     if (!accessToken) {

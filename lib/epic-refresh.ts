@@ -1,19 +1,58 @@
-import { acquireEpicRefreshLease, releaseEpicRefreshLease, updateEpicSessionTokens } from "@/lib/epic-sessions"
+import { acquireEpicRefreshLease, getEpicSession, releaseEpicRefreshLease, updateEpicSessionTokens } from "@/lib/epic-sessions"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 
-export async function refreshEpicSession(orderId: number, refreshToken: string) {
+type RefreshedEpicSession = {
+  accessToken: string
+  refreshToken: string
+  expiresIn?: number
+}
+
+export async function refreshEpicSession(
+  orderId: number,
+  options: { force?: boolean; rejectedAccessToken?: string } = {},
+): Promise<RefreshedEpicSession> {
   const leaseId = crypto.randomUUID()
   let current = await acquireEpicRefreshLease(orderId, leaseId)
   for (let attempt = 0; !current && attempt < 6; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)))
     current = await acquireEpicRefreshLease(orderId, leaseId)
   }
-  if (!current) throw new Error("Epic refresh is already in progress")
+  if (!current) {
+    const latest = await getEpicSession(orderId)
+    if (
+      latest?.accessToken &&
+      latest.refreshToken &&
+      latest.expiresAt &&
+      latest.expiresAt.getTime() > Date.now() + 30_000 &&
+      (!options.force || !options.rejectedAccessToken || latest.accessToken !== options.rejectedAccessToken)
+    ) {
+      return {
+        accessToken: latest.accessToken,
+        refreshToken: latest.refreshToken,
+        expiresIn: Math.floor((latest.expiresAt.getTime() - Date.now()) / 1000),
+      }
+    }
+    throw new Error("Epic refresh is already in progress and no renewed access token is available yet")
+  }
 
   try {
-    if (current.refreshToken && current.refreshToken !== refreshToken && current.accessToken && current.expiresAt && current.expiresAt.getTime() > Date.now() + 30_000) {
-      return { accessToken: current.accessToken, refreshToken: current.refreshToken, expiresIn: undefined }
+    const refreshToken = current.refreshToken
+    if (!refreshToken) throw new Error("No Epic refresh token is stored for this order")
+    const expiresAt = current.expiresAt
+    const currentAccessValid = Boolean(
+      current.accessToken && expiresAt && expiresAt.getTime() > Date.now() + 30_000,
+    )
+    const anotherRequestRefreshed =
+      currentAccessValid &&
+      Boolean(options.rejectedAccessToken) &&
+      current.accessToken !== options.rejectedAccessToken
+    if (current.accessToken && expiresAt && currentAccessValid && (!options.force || anotherRequestRefreshed)) {
+      return {
+        accessToken: current.accessToken,
+        refreshToken,
+        expiresIn: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+      }
     }
 
     const basicToken = process.env.EPIC_BASIC_TOKEN
@@ -36,7 +75,7 @@ export async function refreshEpicSession(orderId: number, refreshToken: string) 
     }
 
     const nextRefreshToken = data.refresh_token || refreshToken
-    await updateEpicSessionTokens(orderId, {
+    await updateEpicSessionTokens(orderId, leaseId, {
       accessToken: data.access_token,
       refreshToken: nextRefreshToken,
       expiresIn: data.expires_in,

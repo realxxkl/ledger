@@ -37,6 +37,20 @@ export async function POST(request: NextRequest) {
       if (errorCode.includes("slow_down")) return NextResponse.json({ status: "pending" })
       return NextResponse.json({ status: "error", error: "Epic authorization was not completed" }, { status: 400 })
     }
+    if (
+      typeof tokenData.account_id !== "string" ||
+      !tokenData.account_id ||
+      typeof tokenData.access_token !== "string" ||
+      !tokenData.access_token ||
+      typeof tokenData.refresh_token !== "string" ||
+      !tokenData.refresh_token.trim()
+    ) {
+      console.error("[Epic] Device authorization response did not contain a complete refreshable session")
+      return NextResponse.json({
+        status: "error",
+        error: "Epic did not provide a refresh token. This account was not saved; try authorizing it again.",
+      }, { status: 502 })
+    }
 
     const profileResponse = await fetch(`${ACCOUNT_BASE}/${encodeURIComponent(tokenData.account_id)}`, {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
@@ -49,7 +63,7 @@ export async function POST(request: NextRequest) {
       accountId: tokenData.account_id,
       displayName: profileData.displayName || tokenData.displayName || "Epic account",
       accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token || undefined,
+      refreshToken: tokenData.refresh_token,
       expiresIn: tokenData.expires_in,
     })
     let vbucksBefore: number | undefined

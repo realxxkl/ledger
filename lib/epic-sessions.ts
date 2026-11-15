@@ -31,6 +31,8 @@ export async function saveEpicSession(input: {
         accessToken: input.accessToken,
         refreshToken: input.refreshToken ?? undefined,
         expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : undefined,
+        refreshLockId: null,
+        refreshLockUntil: null,
         updatedAt: now,
       },
     })
@@ -50,18 +52,21 @@ export async function releaseEpicRefreshLease(orderId: number, leaseId: string) 
     .where(sql`order_id = ${orderId} AND refresh_lock_id = ${leaseId}`)
 }
 
-export async function updateEpicSessionTokens(orderId: number, input: {
+export async function updateEpicSessionTokens(orderId: number, leaseId: string, input: {
   accessToken: string
   refreshToken?: string
   expiresIn?: number
 }) {
   const now = new Date()
-  await db.update(epicOrderSessions).set({
-    accessToken: input.accessToken,
-    refreshToken: input.refreshToken ?? undefined,
-    expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : undefined,
-    updatedAt: now,
-  }).where(eq(epicOrderSessions.orderId, orderId))
+  const updated = await db.update(epicOrderSessions).set({
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken ?? undefined,
+      expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : undefined,
+      updatedAt: now,
+    })
+    .where(sql`order_id = ${orderId} AND refresh_lock_id = ${leaseId}`)
+    .returning({ orderId: epicOrderSessions.orderId })
+  if (!updated[0]) throw new Error("Epic refresh session changed before refreshed tokens could be saved")
 }
 
 export async function saveEpicAuthLink(orderId: number, authLink: string, expiresIn?: number, userCode?: string) {

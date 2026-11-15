@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const account = await getEpicSession(Number(orderId))
     if (!account?.refreshToken) return NextResponse.json({ error: "No Epic refresh token is stored for this order" }, { status: 404 })
 
-    const refreshed = await refreshEpicSession(Number(orderId), account.refreshToken)
+    const refreshed = await refreshEpicSession(Number(orderId), { force: true })
     return NextResponse.json({ ok: true, expiresIn: refreshed.expiresIn })
   } catch (error) {
     console.error("[v0] Epic refresh failed:", error)
