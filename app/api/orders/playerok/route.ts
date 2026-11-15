@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { eq } from "drizzle-orm"
+import { eq, or } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { entries, presets } from "@/lib/db/schema"
@@ -86,6 +86,27 @@ export async function POST(request: NextRequest) {
     const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(timestampValue)
       ? new Date(timestampValue)
       : null
+    if (isRefunded && orderId && (!itemTitle || !Number.isFinite(price) || !timestamp || Number.isNaN(timestamp.getTime()))) {
+      await ensureOrderTrackingSchema()
+      const existing = await db.select({ id: entries.id, source: entries.source, platform: entries.platform })
+        .from(entries)
+        .where(or(eq(entries.externalOrderId, orderId), eq(entries.u7buyOrderId, orderId)))
+        .limit(1)
+      const entry = existing[0]
+      if (!entry || (entry.source !== "playerok" && entry.platform !== "PO")) {
+        return jsonResponse({ error: "Playerok order is not in the ledger yet", orderId }, 404)
+      }
+
+      await db.update(entries).set({
+        orderStatus: "Refunded",
+        earned: "0",
+        paid: "0",
+        feeAmt: "0",
+        profit: "0",
+      }).where(eq(entries.id, entry.id))
+      return jsonResponse({ success: true, orderId, alreadyLogged: true, statusUpdated: true })
+    }
+
     if (
       !orderId ||
       !itemTitle ||
