@@ -42,21 +42,21 @@ export function SummaryCards({ data }: { data: LedgerData }) {
   ]
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 overflow-hidden border border-border bg-card lg:grid-cols-4">
       {cards.map((c) => {
         const Icon = c.icon
         return (
           <div
             key={c.label}
-            className="flex flex-col gap-3 border-2 border-border bg-card p-5"
+            className="flex min-w-0 flex-col gap-3 border-b border-r border-border p-4 last:border-b-0 even:border-r-0 [&:nth-child(n+3)]:border-b-0 sm:p-5 lg:border-b-0 lg:border-r lg:even:border-r lg:last:border-r-0"
           >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 {c.label}
               </span>
-              <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
+              <Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
             </div>
-            <span className={`font-display text-3xl font-black tracking-tight ${c.tone}`}>
+            <span className={`font-display text-2xl font-black tracking-tight sm:text-3xl ${c.tone}`}>
               {c.value}
             </span>
           </div>

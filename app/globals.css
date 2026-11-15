@@ -191,10 +191,63 @@
   background: var(--muted-foreground);
 }
 
+@keyframes order-sphere-drift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+.order-sphere-stage {
+  background:
+    radial-gradient(ellipse at 50% 52%, color-mix(in oklab, var(--primary) 7%, transparent), transparent 59%),
+    linear-gradient(90deg, transparent 49.8%, color-mix(in oklab, var(--border) 35%, transparent) 50%, transparent 50.2%);
+}
+
+.order-sphere-glow {
+  position: absolute;
+  width: min(48%, 250px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--primary) 23%, transparent), transparent 68%);
+  filter: blur(22px);
+}
+
+.order-sphere-orbit {
+  position: absolute;
+  aspect-ratio: 1.72;
+  border: 1px solid color-mix(in oklab, var(--primary) 18%, transparent);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.order-sphere-orbit--one {
+  width: min(76%, 430px);
+  transform: rotate(-18deg);
+}
+
+.order-sphere-orbit--two {
+  width: min(62%, 340px);
+  border-color: color-mix(in oklab, var(--primary) 11%, transparent);
+  transform: rotate(22deg);
+}
+
+.order-sphere-art {
+  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 26px color-mix(in oklab, var(--primary) 18%, transparent));
+  animation: order-sphere-drift 7s ease-in-out infinite;
+  transition: width 1.1s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .account-stored-celebration,
   .account-stored-celebration__particle,
-  .account-stored-celebration__check {
+  .account-stored-celebration__check,
+  .order-sphere-art {
     animation: none;
+    transition: none;
   }
 }
