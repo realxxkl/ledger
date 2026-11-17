@@ -21,6 +21,14 @@ type PlayerokMessageResult = {
   detail: string
 }
 
+const MESSAGE_STATUS_LABEL: Record<PlayerokMessageResult["status"], string> = {
+  sent: "Sent",
+  not_found: "Not found",
+  ambiguous: "Ambiguous",
+  failed: "Failed",
+  uncertain: "Uncertain",
+}
+
 function isBuyerPresenceResult(value: unknown): value is BuyerPresenceResult {
   return Boolean(
     value &&
@@ -903,7 +911,7 @@ export function PendingOrders({
                 {messageSendResults.map((result, index) => (
                   <li key={`${normalizeBuyerUsername(result.buyerUsername)}-${index}`} className="flex flex-wrap gap-x-2">
                     <span className={result.status === "sent" ? "font-bold text-primary" : "font-bold text-destructive"}>
-                      {result.status === "sent" ? "Sent" : result.status === "not_found" ? "Not found" : result.status === "ambiguous" ? "Ambiguous" : result.status === "uncertain" ? "Uncertain" : "Stopped"}
+                      {MESSAGE_STATUS_LABEL[result.status]}
                     </span>
                     <span className="font-bold text-foreground">{result.buyerUsername}:</span>
                     <span className="text-muted-foreground">{result.detail}</span>
