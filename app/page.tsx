@@ -25,7 +25,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function Page() {
   const { data, error, isLoading, mutate } = useLedger()
-  const [tab, setTab] = useState<Tab>("dashboard")
+  const [tab, setTab] = useState<Tab>("pending-orders")
   const [range, setRange] = useState<DateRange>({ from: "", to: "" })
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [focusMonth, setFocusMonth] = useState<string | null>(null)

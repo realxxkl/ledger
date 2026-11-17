@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { Check, LoaderCircle, PackageCheck, Plus, Search } from "lucide-react"
+import { Check, LoaderCircle, MessageCircle, PackageCheck, Plus, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency, formatWaitingSince } from "@/lib/types"
 import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-completion-dialog"
@@ -13,6 +13,12 @@ const ORDER_STATUS_OPTIONS = ["In Progress", "Completed", "Refunded"] as const
 type BuyerPresenceResult = {
   buyerUsername: string
   status: "online" | "unknown"
+}
+
+type PlayerokMessageResult = {
+  buyerUsername: string
+  status: "sent" | "not_found" | "ambiguous" | "failed" | "uncertain"
+  detail: string
 }
 
 function isBuyerPresenceResult(value: unknown): value is BuyerPresenceResult {
@@ -77,6 +83,72 @@ function requestPlayerokPresence(buyerUsernames: string[]) {
       source: "LEDGER_PLAYEROK_PRESENCE_REQUEST",
       requestId,
       buyerUsernames,
+    }, window.location.origin)
+  })
+}
+
+function isPlayerokMessageResult(value: unknown): value is PlayerokMessageResult {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "buyerUsername" in value &&
+      typeof value.buyerUsername === "string" &&
+      "status" in value &&
+      ["sent", "not_found", "ambiguous", "failed", "uncertain"].includes(String(value.status)) &&
+      "detail" in value &&
+      typeof value.detail === "string",
+  )
+}
+
+function requestPlayerokMessages(buyerUsernames: string[], message: string) {
+  return new Promise<{ results: PlayerokMessageResult[]; stopped: boolean }>((resolve, reject) => {
+    const requestId = crypto.randomUUID()
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener("message", handleMessage)
+      reject(new Error("No final response from the extension. Check Playerok Chats before retrying to avoid duplicate messages."))
+    }, 180000)
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.source !== window ||
+        event.origin !== window.location.origin ||
+        event.data?.source !== "LEDGER_PLAYEROK_SEND_MESSAGES_RESULT" ||
+        event.data?.requestId !== requestId
+      ) {
+        return
+      }
+
+      window.clearTimeout(timeout)
+      window.removeEventListener("message", handleMessage)
+      const payload: unknown = event.data.payload
+      if (!payload || typeof payload !== "object") {
+        reject(new Error("The extension returned an invalid message result."))
+        return
+      }
+      if ("error" in payload && typeof payload.error === "string") {
+        reject(new Error(payload.error))
+        return
+      }
+      if (
+        !("results" in payload) ||
+        !Array.isArray(payload.results) ||
+        !payload.results.every(isPlayerokMessageResult) ||
+        !("stopped" in payload) ||
+        typeof payload.stopped !== "boolean"
+      ) {
+        reject(new Error("The extension returned an invalid message result."))
+        return
+      }
+
+      resolve({ results: payload.results, stopped: payload.stopped })
+    }
+
+    window.addEventListener("message", handleMessage)
+    window.postMessage({
+      source: "LEDGER_PLAYEROK_SEND_MESSAGES_REQUEST",
+      requestId,
+      buyerUsernames,
+      message,
     }, window.location.origin)
   })
 }
@@ -190,6 +262,11 @@ export function PendingOrders({
   const [checkingPresence, setCheckingPresence] = useState(false)
   const [presenceError, setPresenceError] = useState("")
   const [presenceNotice, setPresenceNotice] = useState("")
+  const [messageDraft, setMessageDraft] = useState("")
+  const [messagePreview, setMessagePreview] = useState<{ buyerUsernames: string[]; message: string } | null>(null)
+  const [sendingMessages, setSendingMessages] = useState(false)
+  const [messageSendError, setMessageSendError] = useState("")
+  const [messageSendResults, setMessageSendResults] = useState<PlayerokMessageResult[]>([])
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => {
@@ -289,11 +366,18 @@ export function PendingOrders({
     (order) => order.source === "playerok" && Boolean(order.buyerUsername?.trim()),
   )
   const selectedPresenceOrders = presenceCheckableOrders.filter((order) => selectedPresenceOrderIds.has(order.id))
+  const selectedMessageBuyers = [...new Map(
+    selectedPresenceOrders.map((order) => [
+      normalizeBuyerUsername(order.buyerUsername!),
+      order.buyerUsername!.trim(),
+    ]),
+  ).values()]
   const allPresenceOrdersSelected =
     presenceCheckableOrders.length > 0 &&
     presenceCheckableOrders.every((order) => selectedPresenceOrderIds.has(order.id))
 
   function togglePresenceOrder(orderId: string, selected: boolean) {
+    setMessagePreview(null)
     setSelectedPresenceOrderIds((current) => {
       const next = new Set(current)
       if (selected) next.add(orderId)
@@ -303,6 +387,7 @@ export function PendingOrders({
   }
 
   function toggleAllPresenceOrders(selected: boolean) {
+    setMessagePreview(null)
     setSelectedPresenceOrderIds((current) => {
       const next = new Set(current)
       presenceCheckableOrders.forEach((order) => {
@@ -352,6 +437,47 @@ export function PendingOrders({
       setPresenceError(error instanceof Error ? error.message : "Could not check buyer presence.")
     } finally {
       setCheckingPresence(false)
+    }
+  }
+
+  function handlePreviewMessages() {
+    setMessageSendError("")
+    setMessageSendResults([])
+    if (selectedMessageBuyers.length === 0) {
+      setMessageSendError("Select at least one buyer with a saved username.")
+      return
+    }
+    if (selectedMessageBuyers.length > 10) {
+      setMessageSendError("Select no more than 10 unique buyers for one message batch.")
+      return
+    }
+    if (!messageDraft.trim()) {
+      setMessageSendError("Enter a message to preview.")
+      return
+    }
+    if (messageDraft.length > 2000) {
+      setMessageSendError("Messages must be 2,000 characters or fewer.")
+      return
+    }
+    setMessagePreview({ buyerUsernames: selectedMessageBuyers, message: messageDraft })
+  }
+
+  async function handleSendMessages() {
+    if (!messagePreview || sendingMessages) return
+    setSendingMessages(true)
+    setMessageSendError("")
+    setMessageSendResults([])
+    try {
+      const response = await requestPlayerokMessages(messagePreview.buyerUsernames, messagePreview.message)
+      setMessageSendResults(response.results)
+      setMessagePreview(null)
+      if (response.stopped) {
+        setMessageSendError("The queue stopped after a delivery issue. Remaining buyers were not contacted; inspect the reported chat before retrying.")
+      }
+    } catch (error) {
+      setMessageSendError(error instanceof Error ? error.message : "Could not send the selected messages.")
+    } finally {
+      setSendingMessages(false)
     }
   }
 
@@ -696,7 +822,7 @@ export function PendingOrders({
             )}
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Requires Playerok Chats to be open. Only a clear online indicator is reported as Online; unavailable or unclear status is Unknown. This check is read-only and sends no messages.
+            Requires Playerok Chats to be open. Only a clear online indicator is reported as Online; unavailable or unclear status is Unknown. The presence check is read-only.
           </p>
           {orders.some((order) => order.source === "playerok" && !order.buyerUsername?.trim()) && (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -705,6 +831,87 @@ export function PendingOrders({
           )}
           {presenceError && <p role="alert" className="mt-2 text-xs font-bold text-destructive">{presenceError}</p>}
           {presenceNotice && <p role="status" className="mt-2 text-xs font-bold text-primary">{presenceNotice}</p>}
+          <div className="mt-4 border-t border-border pt-4">
+            <label htmlFor="buyer-message" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-foreground">
+              <MessageCircle className="size-4 text-primary" aria-hidden="true" />
+              Message selected buyers
+            </label>
+            <textarea
+              id="buyer-message"
+              value={messageDraft}
+              onChange={(event) => {
+                setMessageDraft(event.target.value)
+                setMessagePreview(null)
+                setMessageSendResults([])
+                setMessageSendError("")
+              }}
+              maxLength={2000}
+              rows={3}
+              placeholder="Write one message to send to each selected buyer"
+              className="mt-2 min-h-20 w-full border-2 border-border bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+              disabled={sendingMessages}
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <span className="text-xs text-muted-foreground">
+                {selectedMessageBuyers.length} unique buyer{selectedMessageBuyers.length === 1 ? "" : "s"} selected; maximum 10 per batch.
+              </span>
+              <button
+                type="button"
+                disabled={selectedMessageBuyers.length === 0 || selectedMessageBuyers.length > 10 || !messageDraft.trim() || sendingMessages}
+                onClick={handlePreviewMessages}
+                className="border-2 border-border px-3 py-2 text-xs font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Preview message
+              </button>
+            </div>
+            {messagePreview && (
+              <div className="mt-3 border-2 border-primary/50 bg-primary/5 p-3" aria-label="Message batch preview">
+                <p className="text-xs font-bold uppercase tracking-wider text-primary">
+                  Review before sending to {messagePreview.buyerUsernames.length} buyer{messagePreview.buyerUsernames.length === 1 ? "" : "s"}
+                </p>
+                <ul className="mt-2 flex flex-wrap gap-2 text-xs text-foreground">
+                  {messagePreview.buyerUsernames.map((username) => <li key={normalizeBuyerUsername(username)} className="border border-border px-2 py-1">{username}</li>)}
+                </ul>
+                <p className="mt-3 whitespace-pre-wrap border border-border bg-background p-3 text-sm text-foreground">{messagePreview.message}</p>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  Messages are sent one at a time in Playerok. If delivery is uncertain, the queue stops; inspect that chat before retrying.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={sendingMessages}
+                    onClick={handleSendMessages}
+                    className="inline-flex items-center gap-2 border-2 border-primary bg-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sendingMessages && <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                    {sendingMessages ? "Sending batch…" : `Confirm & send to ${messagePreview.buyerUsernames.length}`}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={sendingMessages}
+                    onClick={() => setMessagePreview(null)}
+                    className="border-2 border-border px-3 py-2 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+            {messageSendError && <p role="alert" className="mt-2 text-xs font-bold text-destructive">{messageSendError}</p>}
+            {messageSendResults.length > 0 && (
+              <ul className="mt-3 space-y-1 border border-border bg-background p-3 text-xs" aria-live="polite">
+                {messageSendResults.map((result, index) => (
+                  <li key={`${normalizeBuyerUsername(result.buyerUsername)}-${index}`} className="flex flex-wrap gap-x-2">
+                    <span className={result.status === "sent" ? "font-bold text-primary" : "font-bold text-destructive"}>
+                      {result.status === "sent" ? "Sent" : result.status === "not_found" ? "Not found" : result.status === "ambiguous" ? "Ambiguous" : result.status === "uncertain" ? "Uncertain" : "Stopped"}
+                    </span>
+                    <span className="font-bold text-foreground">{result.buyerUsername}:</span>
+                    <span className="text-muted-foreground">{result.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
       {!focusedOrderId &&
