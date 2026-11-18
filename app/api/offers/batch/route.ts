@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { eq } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureOffersSchema } from "@/lib/db/ensure-offers-schema"
@@ -62,6 +62,43 @@ type BatchResponse = {
   appliedAt: string
   summary: BatchSummary
   results: BatchItemResult[]
+}
+
+export async function GET(request: NextRequest) {
+  const requestId = crypto.randomUUID()
+
+  try {
+    const session = await auth.api.getSession({ headers: request.headers })
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized", requestId }, { status: 401 })
+    }
+
+    await ensureOffersSchema()
+    const results = await db.select({
+      id: offers.id,
+      externalOfferId: offers.externalOfferId,
+      title: offers.title,
+      description: offers.description,
+      price: offers.price,
+      rawPrice: offers.rawPrice,
+      categoryId: offers.categoryId,
+      gameId: offers.gameId,
+      status: offers.status,
+      keepInSale: offers.keepInSale,
+      syncStatus: offers.syncStatus,
+      lastSyncedAt: offers.lastSyncedAt,
+      updatedAt: offers.updatedAt,
+    }).from(offers).orderBy(desc(offers.updatedAt), desc(offers.id))
+
+    return NextResponse.json({ offers: results })
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "offers.list.failed",
+      requestId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    }))
+    return NextResponse.json({ error: "Offers could not be loaded.", requestId }, { status: 500 })
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

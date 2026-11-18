@@ -13,12 +13,14 @@ import { FilterBar } from "@/components/filter-bar"
 import { MonthlyChart } from "@/components/monthly-chart"
 import { SignOutButton } from "@/components/sign-out-button"
 import { PendingOrders } from "@/components/pending-orders"
+import { OffersPanel } from "@/components/offers-panel"
 import { LoadingScreen } from "@/components/loading-screen"
 
-type Tab = "dashboard" | "withdrawals" | "settings" | "pending-orders"
+type Tab = "dashboard" | "offers" | "withdrawals" | "settings" | "pending-orders"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "offers", label: "Offers" },
   { id: "withdrawals", label: "Withdrawals" },
   { id: "settings", label: "Settings" },
 ]
@@ -214,6 +216,7 @@ export default function Page() {
                   <WithdrawalsPanel data={data} onChange={refresh} />
                 </>
               )}
+              {tab === "offers" && <OffersPanel />}
               {tab === "settings" && <SettingsPanel data={data} onChange={refresh} />}
               {tab === "pending-orders" && (
                 <PendingOrders
