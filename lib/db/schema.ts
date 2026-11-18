@@ -114,3 +114,22 @@ export const presets = pgTable("presets", {
   name: text("name").notNull(),
   cost: numeric("cost").notNull().default("0"),
 })
+
+export const offers = pgTable("offers", {
+  id: serial("id").primaryKey(),
+  externalOfferId: text("external_offer_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  price: numeric("price", { precision: 12, scale: 2 }).notNull(),
+  rawPrice: numeric("raw_price", { precision: 12, scale: 2 }).notNull(),
+  categoryId: text("category_id").notNull(),
+  gameId: text("game_id").notNull(),
+  status: text("status").notNull().default("APPROVED"),
+  keepInSale: boolean("keep_in_sale").notNull().default(true),
+  syncStatus: text("sync_status").notNull().default("SYNCED"),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  externalOfferIdUnique: uniqueIndex("offers_external_offer_id_unique").on(table.externalOfferId),
+}))
