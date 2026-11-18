@@ -10,6 +10,7 @@ export async function ensureOffersSchema() {
         external_offer_id text NOT NULL,
         title text NOT NULL,
         description text,
+        image_url text,
         price numeric(12, 2) NOT NULL,
         raw_price numeric(12, 2) NOT NULL,
         category_id text NOT NULL,
@@ -21,6 +22,7 @@ export async function ensureOffersSchema() {
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
       );
+      ALTER TABLE offers ADD COLUMN IF NOT EXISTS image_url text;
       CREATE UNIQUE INDEX IF NOT EXISTS offers_external_offer_id_unique
         ON offers (external_offer_id);
     `).then(() => undefined).catch((error: unknown) => {

@@ -22,6 +22,7 @@ type UpsertOperation = {
     externalOfferId: string
     title: string
     description: string | null
+    imageUrl?: string | null
     price: number
     rawPrice: number
     categoryId: string
@@ -79,6 +80,7 @@ export async function GET(request: NextRequest) {
       externalOfferId: offers.externalOfferId,
       title: offers.title,
       description: offers.description,
+      imageUrl: offers.imageUrl,
       price: offers.price,
       rawPrice: offers.rawPrice,
       categoryId: offers.categoryId,
@@ -133,6 +135,16 @@ function validPrice(value: unknown): value is number {
   )
 }
 
+function validImageUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2048) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:" && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
 function validateBatch(body: unknown): ValidationResult {
   if (!isRecord(body) || !hasOnlyKeys(body, ["operations"]) || !Array.isArray(body.operations)) {
     return { error: "Request body must contain only an operations array." }
@@ -175,6 +187,7 @@ function validateBatch(body: unknown): ValidationResult {
       "externalOfferId",
       "title",
       "description",
+      "imageUrl",
       "price",
       "rawPrice",
       "categoryId",
@@ -207,6 +220,10 @@ function validateBatch(body: unknown): ValidationResult {
     ) {
       return { error: `operations[${index}].offer.description must be a string of at most 10,000 characters or null.` }
     }
+    const imageUrl = offer.imageUrl
+    if (imageUrl !== undefined && imageUrl !== null && !validImageUrl(imageUrl)) {
+      return { error: `operations[${index}].offer.imageUrl must be an HTTPS URL of at most 2,048 characters or null.` }
+    }
     if (offer.status !== undefined && !isOfferStatus(offer.status)) {
       return { error: `operations[${index}].offer.status must be one of ${OFFER_STATUSES.join(", ")}.` }
     }
@@ -225,6 +242,7 @@ function validateBatch(body: unknown): ValidationResult {
         externalOfferId,
         title,
         description: typeof offer.description === "string" ? offer.description : null,
+        ...(imageUrl !== undefined ? { imageUrl } : {}),
         price: offer.price,
         rawPrice: offer.rawPrice,
         categoryId,
@@ -281,6 +299,7 @@ export async function POST(request: NextRequest) {
             externalOfferId: offer.externalOfferId,
             title: offer.title,
             description: offer.description,
+            ...(offer.imageUrl !== undefined ? { imageUrl: offer.imageUrl } : {}),
             price: offer.price.toFixed(2),
             rawPrice: offer.rawPrice.toFixed(2),
             categoryId: offer.categoryId,
@@ -295,6 +314,7 @@ export async function POST(request: NextRequest) {
             set: {
               title: offer.title,
               description: offer.description,
+              ...(offer.imageUrl !== undefined ? { imageUrl: offer.imageUrl } : {}),
               price: offer.price.toFixed(2),
               rawPrice: offer.rawPrice.toFixed(2),
               categoryId: offer.categoryId,

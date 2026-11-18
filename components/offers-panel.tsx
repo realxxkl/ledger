@@ -1,7 +1,7 @@
 "use client"
 
 import { FormEvent, useCallback, useEffect, useState } from "react"
-import { Archive, LoaderCircle, Pencil, Plus, RefreshCw, RotateCcw, Search, X } from "lucide-react"
+import { Archive, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, RotateCcw, Search, X } from "lucide-react"
 import { currency } from "@/lib/types"
 
 type OfferStatus = "APPROVED" | "PENDING" | "PAUSED" | "DELETED"
@@ -11,6 +11,7 @@ type Offer = {
   externalOfferId: string
   title: string
   description: string | null
+  imageUrl: string | null
   price: string
   rawPrice: string
   categoryId: string
@@ -26,6 +27,7 @@ type OfferForm = {
   externalOfferId: string
   title: string
   description: string
+  imageUrl: string
   price: string
   rawPrice: string
   categoryId: string
@@ -38,6 +40,7 @@ const EMPTY_FORM: OfferForm = {
   externalOfferId: "",
   title: "",
   description: "",
+  imageUrl: "",
   price: "",
   rawPrice: "",
   categoryId: "",
@@ -60,6 +63,7 @@ function isOffer(value: unknown): value is Offer {
       "id" in value && typeof value.id === "number" &&
       "externalOfferId" in value && typeof value.externalOfferId === "string" &&
       "title" in value && typeof value.title === "string" &&
+      "imageUrl" in value && (typeof value.imageUrl === "string" || value.imageUrl === null) &&
       "price" in value && typeof value.price === "string" &&
       "rawPrice" in value && typeof value.rawPrice === "string" &&
       "categoryId" in value && typeof value.categoryId === "string" &&
@@ -143,6 +147,7 @@ export function OffersPanel() {
       externalOfferId: offer.externalOfferId,
       title: offer.title,
       description: offer.description ?? "",
+      imageUrl: offer.imageUrl ?? "",
       price: offer.price,
       rawPrice: offer.rawPrice,
       categoryId: offer.categoryId,
@@ -180,6 +185,7 @@ export function OffersPanel() {
               externalOfferId: form.externalOfferId.trim(),
               title: form.title.trim(),
               description: form.description || null,
+              imageUrl: form.imageUrl.trim() || null,
               price: Number(form.price),
               rawPrice: Number(form.rawPrice),
               categoryId: form.categoryId.trim(),
@@ -294,12 +300,23 @@ export function OffersPanel() {
             {activeCount} active · {archivedCount} archived. Changes here do not publish to Playerok.
           </p>
         </div>
-        <button type="button" onClick={() => void loadOffers()} disabled={loading} className={outlineButton}>
-          {loading
-            ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            : <RefreshCw className="size-4" aria-hidden="true" />}
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="https://playerok.com/sell"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={outlineButton}
+          >
+            <ExternalLink className="size-4" aria-hidden="true" />
+            Open Playerok
+          </a>
+          <button type="button" onClick={() => void loadOffers()} disabled={loading} className={outlineButton}>
+            {loading
+              ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              : <RefreshCw className="size-4" aria-hidden="true" />}
+            Refresh
+          </button>
+        </div>
       </header>
 
       <form onSubmit={submitForm} className="grid gap-3 border-b-2 border-border p-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -412,6 +429,31 @@ export function OffersPanel() {
             className={`${inputClass} mt-1`}
           />
         </label>
+        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground sm:col-span-2 lg:col-span-4">
+          Image URL (HTTPS)
+          <input
+            type="url"
+            maxLength={2048}
+            value={form.imageUrl}
+            onChange={(event) => setForm((current) => ({ ...current, imageUrl: event.target.value }))}
+            placeholder="https://example.com/offer-image.jpg"
+            className={`${inputClass} mt-1`}
+          />
+          <span className="mt-1 block normal-case tracking-normal">
+            Used for the local preview. Live Playerok listings still require a file uploaded through Playerok.
+          </span>
+        </label>
+        {form.imageUrl.trim().startsWith("https://") && (
+          <div className="sm:col-span-2 lg:col-span-4">
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Preview</p>
+            <img
+              src={form.imageUrl.trim()}
+              alt="Offer image preview"
+              referrerPolicy="no-referrer"
+              className="max-h-40 max-w-full border-2 border-border object-contain"
+            />
+          </div>
+        )}
         <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
           <button type="submit" disabled={saving} className={primaryButton}>
             {saving
@@ -477,25 +519,36 @@ export function OffersPanel() {
             const busy = busyOfferId === offer.externalOfferId
             return (
               <article key={offer.externalOfferId} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="truncate font-bold text-foreground">{offer.title}</h3>
-                    <span className={`border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${offerStatusTone(offer.status)}`}>
-                      {offer.status}
-                    </span>
-                    <span className="border border-border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      {offer.keepInSale ? "In sale" : "Not in sale"}
-                    </span>
+                <div className="flex min-w-0 gap-3">
+                  {offer.imageUrl && (
+                    <img
+                      src={offer.imageUrl}
+                      alt=""
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="size-16 shrink-0 border border-border object-cover"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate font-bold text-foreground">{offer.title}</h3>
+                      <span className={`border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${offerStatusTone(offer.status)}`}>
+                        {offer.status}
+                      </span>
+                      <span className="border border-border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {offer.keepInSale ? "In sale" : "Not in sale"}
+                      </span>
+                    </div>
+                    <p className="mt-1 break-all text-xs text-muted-foreground">ID: {offer.externalOfferId}</p>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Price {currency(Number(offer.price))}</span>
+                      <span>Raw {currency(Number(offer.rawPrice))}</span>
+                      <span>Category {offer.categoryId}</span>
+                      <span>Game {offer.gameId}</span>
+                      <span>Mirror {offer.syncStatus}</span>
+                    </div>
+                    {offer.description && <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{offer.description}</p>}
                   </div>
-                  <p className="mt-1 break-all text-xs text-muted-foreground">ID: {offer.externalOfferId}</p>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>Price {currency(Number(offer.price))}</span>
-                    <span>Raw {currency(Number(offer.rawPrice))}</span>
-                    <span>Category {offer.categoryId}</span>
-                    <span>Game {offer.gameId}</span>
-                    <span>Mirror {offer.syncStatus}</span>
-                  </div>
-                  {offer.description && <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">{offer.description}</p>}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => startEdit(offer)} className={outlineButton}>

@@ -120,6 +120,7 @@ export const offers = pgTable("offers", {
   externalOfferId: text("external_offer_id").notNull(),
   title: text("title").notNull(),
   description: text("description"),
+  imageUrl: text("image_url"),
   price: numeric("price", { precision: 12, scale: 2 }).notNull(),
   rawPrice: numeric("raw_price", { precision: 12, scale: 2 }).notNull(),
   categoryId: text("category_id").notNull(),
