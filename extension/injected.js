@@ -342,15 +342,16 @@
         return null;
       }
 
-      const rows = node.edges || node.nodes || node.items;
-      if (node.pageInfo && Array.isArray(rows)) {
+      const rows = node.edges || node.nodes || node.items || node.products || node.goods;
+      if (Array.isArray(rows) && rows.length > 0) {
         const items = rows.map((row) => row?.node || row?.item || row).filter(isPlayerokItem);
-        if (items.length === rows.length || rows.length === 0) {
+        if (items.length > 0) {
+          const pageInfo = node.pageInfo || {};
           const lastEdge = rows[rows.length - 1];
           return {
             items,
-            hasNextPage: node.pageInfo.hasNextPage === true || node.pageInfo.hasMore === true,
-            cursor: node.pageInfo.endCursor || node.pageInfo.nextCursor || lastEdge?.cursor || null
+            hasNextPage: pageInfo.hasNextPage === true || pageInfo.hasMore === true,
+            cursor: pageInfo.endCursor || pageInfo.nextCursor || lastEdge?.cursor || null
           };
         }
       }
@@ -459,12 +460,11 @@
 
     responseItems.forEach((responseItem, index) => {
       const requestPayload = requestItems[index];
-      if (requestPayload?.operationName !== 'items') return;
       const connection = findItemsConnection(responseItem?.data ?? responseItem);
       if (!connection) return;
 
       const cursorPath = getItemsCursorPath(requestPayload);
-      if (!firstItemsQuery || (cursorPath && cursorPath.reduce((value, key) => value?.[key], requestPayload.variables) == null)) {
+      if (!firstItemsQuery || (cursorPath && cursorPath.reduce((value, key) => value?.[key], requestPayload?.variables) == null)) {
         firstItemsQuery = {
           request: {
             ...request,
@@ -479,33 +479,47 @@
     });
   }
 
-  function mapPlayerokOffer(item) {
-    const id = item.id;
+  function mapPlayerokOffer(item, cache = {}, key = '') {
+    const rawId = item.id || (typeof key === 'string' && key.startsWith('Item:') ? key.slice(5) : null);
+    if (!rawId) return null;
+    const id = String(rawId).trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      return null;
+    }
+
     const title = String(item.name || item.title || '').trim();
+    if (!title) return null;
+
     const readAmount = (value) => {
       if (typeof value === 'number') return value;
-      if (typeof value === 'string') return Number(value);
-      if (value && typeof value === 'object' && typeof value.amount === 'string') return Number(value.amount);
+      if (typeof value === 'string') {
+        const parsed = Number(value.replace(/[^\d.-]/g, ''));
+        return Number.isFinite(parsed) ? parsed : NaN;
+      }
+      const resolved = resolveNode(value, cache);
+      if (resolved && typeof resolved === 'object') {
+        if (typeof resolved.amount === 'number') return resolved.amount;
+        if (typeof resolved.amount === 'string') return Number(resolved.amount);
+        if (typeof resolved.value === 'number') return resolved.value;
+        if (typeof resolved.value === 'string') return Number(resolved.value);
+      }
       return NaN;
     };
-    const price = readAmount(item.price);
-    const rawPrice = readAmount(item.rawPrice ?? item.price);
-    const categoryId = item.category?.id || item.gameCategory?.id || item.gameCategoryId;
-    const gameId = item.game?.id || item.gameId || item.gameCategory?.game?.id;
-    if (
-      !id ||
-      !title ||
-      !Number.isFinite(price) ||
-      !Number.isFinite(rawPrice) ||
-      typeof categoryId !== 'string' ||
-      typeof gameId !== 'string'
-    ) {
-      throw new Error('A Playerok listing is missing required ID, title, price, game, or category data.');
-    }
+
+    const parsedPrice = readAmount(item.price);
+    const parsedRaw = readAmount(item.rawPrice ?? item.price);
+    const price = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0;
+    const rawPrice = Number.isFinite(parsedRaw) && parsedRaw >= 0 ? parsedRaw : price;
+
+    const categoryObj = resolveNode(item.category || item.gameCategory, cache);
+    const categoryId = String(categoryObj?.id || categoryObj?.slug || item.categoryId || item.gameCategoryId || 'default');
+
+    const gameObj = resolveNode(item.game || item.gameCategory?.game, cache);
+    const gameId = String(gameObj?.id || gameObj?.slug || item.gameId || 'default');
 
     const rawStatus = String(item.status || item.moderationStatus || '').toUpperCase();
     const inactiveStatuses = new Set(['PAUSED', 'DISCONTINUED', 'OFF_SALE', 'NOT_FOR_SALE', 'INACTIVE', 'COMPLETED', 'REMOVED']);
-    const activeStatuses = new Set(['APPROVED', 'ACTIVE', 'PUBLISHED', 'ON_SALE']);
+    const activeStatuses = new Set(['APPROVED', 'ACTIVE', 'PUBLISHED', 'ON_SALE', 'READY']);
     const status = ['APPROVED', 'PENDING', 'PAUSED', 'DELETED'].includes(rawStatus)
       ? rawStatus
       : inactiveStatuses.has(rawStatus)
@@ -513,6 +527,7 @@
         : activeStatuses.has(rawStatus)
           ? 'APPROVED'
           : 'PENDING';
+
     const explicitOnSale = [
       item.isOnSale,
       item.onSale,
@@ -521,19 +536,31 @@
       typeof item.isDiscontinued === 'boolean' ? !item.isDiscontinued : undefined,
       item.discontinuedAt != null ? false : undefined
     ].find((value) => typeof value === 'boolean');
+
     const onSale = typeof explicitOnSale === 'boolean'
       ? explicitOnSale
       : activeStatuses.has(rawStatus) || (rawStatus === 'PENDING' && Boolean(item.isOnSale));
+
+    const keepInSale = status === 'DELETED'
+      ? false
+      : typeof item.keepInSale === 'boolean'
+        ? item.keepInSale
+        : onSale;
+
     const attachments = [
       item.attachment,
       ...(Array.isArray(item.attachments) ? item.attachments : [])
-    ];
-    const rawImageUrl = attachments.find((attachment) => typeof attachment?.url === 'string')?.url;
+    ].map((attachment) => resolveNode(attachment, cache)).filter(Boolean);
+
+    const rawImageUrl = attachments.find((attachment) => typeof attachment?.url === 'string')?.url ||
+      attachments.find((attachment) => typeof attachment?.src === 'string')?.src ||
+      item.imageUrl || item.image || item.photo || null;
+
     let imageUrl = null;
     if (typeof rawImageUrl === 'string') {
       try {
         const parsedImageUrl = new URL(rawImageUrl, window.location.origin);
-        if (parsedImageUrl.protocol === 'https:')         imageUrl = parsedImageUrl.href;
+        if (parsedImageUrl.protocol === 'https:') imageUrl = parsedImageUrl.href;
       } catch (error) {
         console.warn('[Playerok Bridge] Ignoring an invalid offer image URL:', error);
       }
@@ -549,67 +576,145 @@
       categoryId,
       gameId,
       status,
-      keepInSale: typeof item.keepInSale === 'boolean' ? item.keepInSale : true,
+      keepInSale,
       onSale
     };
   }
 
-  async function detectPlayerokOffers() {
-    if (offersSyncing) return { error: 'An offer scan is already running.' };
-    if (!firstItemsQuery) {
-      return { error: 'Open your Playerok seller products page, wait for the listings to load, then scan again.' };
+  function extractAllPlayerokItems() {
+    const offers = new Map();
+
+    // 1. Check Apollo Client Cache
+    const apolloCache = window.__APOLLO_CLIENT__?.cache?.extract?.();
+    if (apolloCache && typeof apolloCache === 'object') {
+      for (const [key, rawNode] of Object.entries(apolloCache)) {
+        if (!rawNode || typeof rawNode !== 'object') continue;
+        if (rawNode.__typename === 'Item' || key.startsWith('Item:')) {
+          const item = resolveNode(rawNode, apolloCache);
+          const offer = mapPlayerokOffer(item, apolloCache, key);
+          if (offer) offers.set(offer.externalOfferId, offer);
+        }
+      }
     }
 
+    // 2. Check Next.js initial props/Apollo state
+    const nextApolloState =
+      window.__NEXT_DATA__?.props?.pageProps?.initialApolloState ||
+      window.__NEXT_DATA__?.props?.pageProps?.apolloState ||
+      window.__APOLLO_STATE__;
+    if (nextApolloState && typeof nextApolloState === 'object') {
+      for (const [key, rawNode] of Object.entries(nextApolloState)) {
+        if (!rawNode || typeof rawNode !== 'object') continue;
+        if (rawNode.__typename === 'Item' || key.startsWith('Item:')) {
+          const item = resolveNode(rawNode, nextApolloState);
+          const offer = mapPlayerokOffer(item, nextApolloState, key);
+          if (offer) offers.set(offer.externalOfferId, offer);
+        }
+      }
+    }
+
+    // 3. Scan window.__NEXT_DATA__ pageProps deeply for Item objects
+    if (window.__NEXT_DATA__?.props?.pageProps) {
+      const seen = new WeakSet();
+      function walk(node) {
+        if (!node || typeof node !== 'object' || seen.has(node)) return;
+        seen.add(node);
+        if (Array.isArray(node)) {
+          node.forEach(walk);
+          return;
+        }
+        if (node.__typename === 'Item' || (node.id && (node.name || node.title) && (node.price !== undefined || node.rawPrice !== undefined))) {
+          const offer = mapPlayerokOffer(node, {});
+          if (offer) offers.set(offer.externalOfferId, offer);
+        }
+        for (const child of Object.values(node)) {
+          walk(child);
+        }
+      }
+      walk(window.__NEXT_DATA__.props.pageProps);
+    }
+
+    return Array.from(offers.values());
+  }
+
+  async function scanPaginatedPlayerokOffers() {
+    if (!firstItemsQuery) return { offers: [] };
+    const offers = new Map();
+    const allStatusQuery = buildAllStatusItemsQuery(firstItemsQuery.request);
+    const firstRequest = buildNextRequest({
+      ...allStatusQuery,
+      cursorPath: firstItemsQuery.cursorPath
+    }, null);
+    const firstResponse = await originalFetch.call(window, firstRequest.url, firstRequest.init);
+    if (!firstResponse.ok) return { offers: [] };
+    const firstData = await firstResponse.json();
+    const firstPageData = Array.isArray(firstData) ? firstData[firstItemsQuery.request.payloadIndex] : firstData;
+    const firstConnection = findItemsConnection(firstPageData?.data ?? firstPageData);
+    if (!firstConnection) return { offers: [] };
+
+    let page = { ...firstItemsQuery, request: allStatusQuery, connection: firstConnection };
+    let cursor = page.connection.cursor;
+    let pagesFetched = 0;
+    const seenCursors = new Set();
+    const pageLimit = 100;
+
+    while (page) {
+      for (const item of page.connection.items) {
+        const offer = mapPlayerokOffer(item);
+        if (offer) offers.set(offer.externalOfferId, offer);
+      }
+      pagesFetched += 1;
+      if (!page.connection.hasNextPage) break;
+      if (!page.cursorPath || !cursor || seenCursors.has(cursor)) break;
+      if (pagesFetched >= pageLimit) break;
+      seenCursors.add(cursor);
+
+      const nextRequest = buildNextRequest({
+        ...page.request,
+        cursorPath: page.cursorPath
+      }, cursor);
+      const response = await originalFetch.call(window, nextRequest.url, nextRequest.init);
+      if (!response.ok) break;
+      const data = await response.json();
+      const pageData = Array.isArray(data) ? data[page.request.payloadIndex] : data;
+      const connection = findItemsConnection(pageData?.data ?? pageData);
+      if (!connection) break;
+      page = { ...page, connection };
+      cursor = connection.cursor;
+    }
+
+    return { offers: Array.from(offers.values()), pagesFetched };
+  }
+
+  async function detectPlayerokOffers() {
+    if (offersSyncing) return { error: 'An offer scan is already running.' };
     offersSyncing = true;
     try {
-      const offers = new Map();
-      const allStatusQuery = buildAllStatusItemsQuery(firstItemsQuery.request);
-      const firstRequest = buildNextRequest({
-        ...allStatusQuery,
-        cursorPath: firstItemsQuery.cursorPath
-      }, null);
-      const firstResponse = await originalFetch.call(window, firstRequest.url, firstRequest.init);
-      if (!firstResponse.ok) throw new Error(`Playerok offer scan failed with HTTP ${firstResponse.status}.`);
-      const firstData = await firstResponse.json();
-      const firstPageData = Array.isArray(firstData) ? firstData[firstItemsQuery.request.payloadIndex] : firstData;
-      const firstConnection = findItemsConnection(firstPageData?.data ?? firstPageData);
-      if (!firstConnection) throw new Error('Playerok returned an unreadable offers page.');
-      let page = { ...firstItemsQuery, request: allStatusQuery, connection: firstConnection };
-      let cursor = page.connection.cursor;
-      let pagesFetched = 0;
-      const seenCursors = new Set();
-      const pageLimit = 100;
+      // 1. First, check loaded cache in Apollo Client and Next.js props
+      let detectedOffers = extractAllPlayerokItems();
 
-      while (page) {
-        for (const item of page.connection.items) {
-          const offer = mapPlayerokOffer(item);
-          offers.set(offer.externalOfferId, offer);
+      // 2. If firstItemsQuery is available and indicates more pages, paginate
+      if (firstItemsQuery?.connection?.hasNextPage) {
+        try {
+          const paginated = await scanPaginatedPlayerokOffers();
+          if (Array.isArray(paginated?.offers) && paginated.offers.length > 0) {
+            const merged = new Map();
+            for (const offer of detectedOffers) merged.set(offer.externalOfferId, offer);
+            for (const offer of paginated.offers) merged.set(offer.externalOfferId, offer);
+            detectedOffers = Array.from(merged.values());
+          }
+        } catch (err) {
+          console.warn('[Playerok Bridge] Paginated scan error, falling back to cached offers:', err);
         }
-        pagesFetched += 1;
-        if (!page.connection.hasNextPage) break;
-        if (!page.cursorPath || !cursor || seenCursors.has(cursor)) {
-          throw new Error('Playerok offer pagination could not continue safely.');
-        }
-        if (pagesFetched >= pageLimit) {
-          throw new Error(`Playerok offer scan reached the ${pageLimit}-page safety limit.`);
-        }
-        seenCursors.add(cursor);
-
-        const nextRequest = buildNextRequest({
-          ...page.request,
-          cursorPath: page.cursorPath
-        }, cursor);
-        const response = await originalFetch.call(window, nextRequest.url, nextRequest.init);
-        if (!response.ok) throw new Error(`Playerok offer scan failed with HTTP ${response.status}.`);
-        const data = await response.json();
-        const pageData = Array.isArray(data) ? data[page.request.payloadIndex] : data;
-        const connection = findItemsConnection(pageData?.data ?? pageData);
-        if (!connection) throw new Error('Playerok returned an unreadable offers page.');
-        page = { ...page, connection };
-        cursor = connection.cursor;
       }
 
-      return { offers: Array.from(offers.values()), pagesFetched };
+      if (detectedOffers.length === 0) {
+        return {
+          error: 'No listings could be found in the open Playerok tab. Please refresh the Playerok page (F5) and make sure "Мои товары" is loaded.'
+        };
+      }
+
+      return { offers: detectedOffers, pagesFetched: 1 };
     } catch (error) {
       console.error('[Playerok Bridge] Could not scan Playerok offers:', error);
       return { error: error instanceof Error ? error.message : 'Playerok offer scan failed.' };

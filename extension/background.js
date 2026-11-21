@@ -75,12 +75,16 @@ async function handlePlayerokOffersAction(action, itemId) {
     return { error: 'Invalid Playerok offer ID.' };
   }
 
-  const tabs = await chrome.tabs.query({
-    url: ['*://playerok.com/profile/*/products*', '*://*.playerok.com/profile/*/products*']
+  const allPlayerokTabs = await chrome.tabs.query({
+    url: ['*://playerok.com/*', '*://*.playerok.com/*']
   });
-  const tab = tabs.find((candidate) => candidate.active) || tabs[0];
+  const tab = allPlayerokTabs.find((candidate) => candidate.active && /profile|products|sell/i.test(candidate.url || '')) ||
+    allPlayerokTabs.find((candidate) => /profile.*products|products/i.test(candidate.url || '')) ||
+    allPlayerokTabs.find((candidate) => /profile/i.test(candidate.url || '')) ||
+    allPlayerokTabs.find((candidate) => candidate.active) ||
+    allPlayerokTabs[0];
   if (!tab?.id) {
-    return { error: 'Open your Playerok seller products page and wait for its offers to load.' };
+    return { error: 'Open your Playerok seller products page in a browser tab first.' };
   }
 
   try {
