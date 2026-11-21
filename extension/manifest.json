@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Playerok Ledger & Auth Bridge",
+  "version": "1.0.6",
+  "description": "Syncs Playerok offers and orders with the Ledger and sends reviewed messages to selected buyers.",
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.playerok.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://ledger-one-gules.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.playerok.com/*"],
+      "js": ["injected.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.playerok.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": [
+        "https://ledger-one-gules.vercel.app/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["ledger-bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ]
+}
