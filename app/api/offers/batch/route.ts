@@ -29,6 +29,7 @@ type UpsertOperation = {
     gameId: string
     status: OfferStatus
     keepInSale: boolean
+    onSale?: boolean
     syncStatus: SyncStatus
   }
 }
@@ -87,6 +88,7 @@ export async function GET(request: NextRequest) {
       gameId: offers.gameId,
       status: offers.status,
       keepInSale: offers.keepInSale,
+      onSale: offers.onSale,
       syncStatus: offers.syncStatus,
       lastSyncedAt: offers.lastSyncedAt,
       updatedAt: offers.updatedAt,
@@ -194,6 +196,7 @@ function validateBatch(body: unknown): ValidationResult {
       "gameId",
       "status",
       "keepInSale",
+      "onSale",
       "syncStatus",
     ]
     if (!hasOnlyKeys(offer, allowedOfferKeys)) {
@@ -230,6 +233,9 @@ function validateBatch(body: unknown): ValidationResult {
     if (offer.keepInSale !== undefined && typeof offer.keepInSale !== "boolean") {
       return { error: `operations[${index}].offer.keepInSale must be a boolean.` }
     }
+    if (offer.onSale !== undefined && typeof offer.onSale !== "boolean") {
+      return { error: `operations[${index}].offer.onSale must be a boolean.` }
+    }
     if (offer.syncStatus !== undefined && !isSyncStatus(offer.syncStatus)) {
       return { error: `operations[${index}].offer.syncStatus must be one of ${SYNC_STATUSES.join(", ")}.` }
     }
@@ -249,6 +255,7 @@ function validateBatch(body: unknown): ValidationResult {
         gameId,
         status,
         keepInSale: status === "DELETED" ? false : typeof offer.keepInSale === "boolean" ? offer.keepInSale : true,
+        ...(typeof offer.onSale === "boolean" ? { onSale: offer.onSale } : {}),
         syncStatus: isSyncStatus(offer.syncStatus) ? offer.syncStatus : "SYNCED",
       },
     })
@@ -306,6 +313,7 @@ export async function POST(request: NextRequest) {
             gameId: offer.gameId,
             status: offer.status,
             keepInSale: offer.keepInSale,
+            onSale: offer.onSale ?? offer.keepInSale,
             syncStatus: offer.syncStatus,
             lastSyncedAt: appliedAt,
             updatedAt: appliedAt,
@@ -321,6 +329,7 @@ export async function POST(request: NextRequest) {
               gameId: offer.gameId,
               status: offer.status,
               keepInSale: offer.keepInSale,
+              ...(offer.onSale !== undefined ? { onSale: offer.onSale } : {}),
               syncStatus: offer.syncStatus,
               lastSyncedAt: appliedAt,
               updatedAt: appliedAt,

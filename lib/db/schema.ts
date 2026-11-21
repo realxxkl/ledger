@@ -127,6 +127,7 @@ export const offers = pgTable("offers", {
   gameId: text("game_id").notNull(),
   status: text("status").notNull().default("APPROVED"),
   keepInSale: boolean("keep_in_sale").notNull().default(true),
+  onSale: boolean("on_sale").notNull().default(true),
   syncStatus: text("sync_status").notNull().default("SYNCED"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
