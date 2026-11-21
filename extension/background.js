@@ -70,7 +70,7 @@ async function handlePlayerokOffersAction(action, itemId) {
   if (
     action !== 'detect' &&
     (typeof itemId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(itemId))
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId))
   ) {
     return { error: 'Invalid Playerok offer ID.' };
   }

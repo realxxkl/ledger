@@ -483,7 +483,7 @@
     const rawId = item.id || (typeof key === 'string' && key.startsWith('Item:') ? key.slice(5) : null);
     if (!rawId) return null;
     const id = String(rawId).trim();
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
       return null;
     }
 
@@ -598,9 +598,19 @@
     }
 
     // 2. Check Next.js initial props/Apollo state
+    let nextData = window.__NEXT_DATA__;
+    if (!nextData) {
+      try {
+        const scriptEl = document.getElementById('__NEXT_DATA__');
+        if (scriptEl?.textContent) nextData = JSON.parse(scriptEl.textContent);
+      } catch (error) {
+        console.warn('[Playerok Bridge] Could not parse __NEXT_DATA__ script:', error);
+      }
+    }
+
     const nextApolloState =
-      window.__NEXT_DATA__?.props?.pageProps?.initialApolloState ||
-      window.__NEXT_DATA__?.props?.pageProps?.apolloState ||
+      nextData?.props?.pageProps?.initialApolloState ||
+      nextData?.props?.pageProps?.apolloState ||
       window.__APOLLO_STATE__;
     if (nextApolloState && typeof nextApolloState === 'object') {
       for (const [key, rawNode] of Object.entries(nextApolloState)) {
@@ -613,8 +623,8 @@
       }
     }
 
-    // 3. Scan window.__NEXT_DATA__ pageProps deeply for Item objects
-    if (window.__NEXT_DATA__?.props?.pageProps) {
+    // 3. Scan Next.js pageProps deeply for Item objects
+    if (nextData?.props?.pageProps) {
       const seen = new WeakSet();
       function walk(node) {
         if (!node || typeof node !== 'object' || seen.has(node)) return;
@@ -631,7 +641,31 @@
           walk(child);
         }
       }
-      walk(window.__NEXT_DATA__.props.pageProps);
+      walk(nextData.props.pageProps);
+    }
+
+    // 4. Scan React DOM Fiber/Props directly from visible card elements
+    const candidateLinks = Array.from(document.querySelectorAll('a[href*="/products/"], a[href*="/item/"]'));
+    for (const link of candidateLinks) {
+      let current = link;
+      let foundCandidate = null;
+      for (let i = 0; i < 5 && current; i++) {
+        const propsKey = Object.keys(current).find((k) => k.startsWith('__reactProps'));
+        const fiberKey = Object.keys(current).find((k) => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+        const props = current[propsKey] || current[fiberKey]?.memoizedProps;
+        if (props) {
+          const candidate = props.item || props.product || props.offer || props.lot || (props.id && (props.name || props.title) && props.price !== undefined ? props : null);
+          if (candidate && candidate.id) {
+            foundCandidate = candidate;
+            break;
+          }
+        }
+        current = current.parentElement;
+      }
+      if (foundCandidate) {
+        const offer = mapPlayerokOffer(foundCandidate, {});
+        if (offer) offers.set(offer.externalOfferId, offer);
+      }
     }
 
     return Array.from(offers.values());
@@ -729,7 +763,7 @@
     }
     if (
       typeof itemId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(itemId)
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)
     ) {
       return { error: 'Invalid Playerok offer ID.' };
     }
@@ -1159,7 +1193,7 @@
       !['detect', 'republish', 'discontinue'].includes(action) ||
       (action !== 'detect' &&
         (typeof itemId !== 'string' ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(itemId)))
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)))
     ) {
       return;
     }
