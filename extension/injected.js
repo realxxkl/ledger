@@ -8,6 +8,7 @@
   let syncing = false;
   let offersSyncing = false;
   let refundScanTimer = null;
+  const discoveredOffersMap = new Map();
 
   // Live GraphQL-sourced maps: normalizedBuyerUsername -> Set of chatIds, dealId -> chat and buyer.
   const buyerChatMap = new Map();
@@ -480,10 +481,10 @@
   }
 
   function mapPlayerokOffer(item, cache = {}, key = '') {
-    const rawId = item.id || (typeof key === 'string' && key.startsWith('Item:') ? key.slice(5) : null);
+    const rawId = item.id || item.itemId || item.externalOfferId || (typeof key === 'string' && key.startsWith('Item:') ? key.slice(5) : null);
     if (!rawId) return null;
     const id = String(rawId).trim();
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    if (!/^[0-9a-zA-Z-]{8,64}$/.test(id)) {
       return null;
     }
 
@@ -644,31 +645,192 @@
       walk(nextData.props.pageProps);
     }
 
-    // 4. Scan React DOM Fiber/Props directly from visible card elements
-    const candidateLinks = Array.from(document.querySelectorAll('a[href*="/products/"], a[href*="/item/"]'));
-    for (const link of candidateLinks) {
-      let current = link;
-      let foundCandidate = null;
-      for (let i = 0; i < 5 && current; i++) {
-        const propsKey = Object.keys(current).find((k) => k.startsWith('__reactProps'));
-        const fiberKey = Object.keys(current).find((k) => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-        const props = current[propsKey] || current[fiberKey]?.memoizedProps;
-        if (props) {
-          const candidate = props.item || props.product || props.offer || props.lot || (props.id && (props.name || props.title) && props.price !== undefined ? props : null);
-          if (candidate && candidate.id) {
-            foundCandidate = candidate;
-            break;
+    return Array.from(offers.values());
+  }
+
+  function scanNextRscStream() {
+    try {
+      const nextF = window.self?.__next_f || window.__next_f;
+      if (Array.isArray(nextF)) {
+        for (const entry of nextF) {
+          if (!Array.isArray(entry) || typeof entry[1] !== 'string') continue;
+          scanRscString(entry[1]);
+        }
+      }
+    } catch (e) {
+      console.warn('[Playerok Bridge] Error scanning __next_f:', e);
+    }
+  }
+
+  function scanRscString(str) {
+    if (!str || typeof str !== 'string') return;
+    const regex = /\{[^{}]*?"id":"([0-9a-zA-Z-]+)"[^{}]*?"(?:name|title)":"([^"]+)"[^{}]*?\}/g;
+    let match;
+    while ((match = regex.exec(str)) !== null) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        const offer = mapPlayerokOffer(parsed);
+        if (offer) discoveredOffersMap.set(offer.externalOfferId, offer);
+      } catch {}
+    }
+  }
+
+  try {
+    if (window.self?.__next_f && Array.isArray(window.self.__next_f)) {
+      const origPush = window.self.__next_f.push.bind(window.self.__next_f);
+      window.self.__next_f.push = function (...items) {
+        for (const item of items) {
+          if (Array.isArray(item) && typeof item[1] === 'string') {
+            scanRscString(item[1]);
           }
         }
-        current = current.parentElement;
-      }
-      if (foundCandidate) {
-        const offer = mapPlayerokOffer(foundCandidate, {});
-        if (offer) offers.set(offer.externalOfferId, offer);
+        return origPush(...items);
+      };
+    }
+  } catch {}
+
+  function extractItemFromFiber(el) {
+    if (!el) return null;
+    const fiberKey = Object.keys(el).find((k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'));
+    let fiber = el[fiberKey];
+    let depth = 0;
+    while (fiber && depth < 25) {
+      const candidate = findItemInObject(fiber.memoizedProps) || findItemInObject(fiber.memoizedState);
+      if (candidate) return candidate;
+      fiber = fiber.return;
+      depth++;
+    }
+    return null;
+  }
+
+  function findItemInObject(obj, maxDepth = 3) {
+    if (!obj || typeof obj !== 'object' || maxDepth <= 0) return null;
+    if (obj.id && (obj.name || obj.title) && (obj.price !== undefined || obj.rawPrice !== undefined)) {
+      return obj;
+    }
+    if (obj.item && typeof obj.item === 'object' && obj.item.id) return obj.item;
+    if (obj.product && typeof obj.product === 'object' && obj.product.id) return obj.product;
+    if (obj.offer && typeof obj.offer === 'object' && obj.offer.id) return obj.offer;
+    if (obj.lot && typeof obj.lot === 'object' && obj.lot.id) return obj.lot;
+
+    for (const key of Object.keys(obj)) {
+      if (key === 'children' || key.startsWith('__')) continue;
+      const res = findItemInObject(obj[key], maxDepth - 1);
+      if (res) return res;
+    }
+    return null;
+  }
+
+  function scrapeOffersFromDom() {
+    const scraped = [];
+    const seenIds = new Set();
+
+    // 1. Collect all UUIDs present on the page HTML
+    const allHtml = document.documentElement.innerHTML;
+    const pageUuids = Array.from(allHtml.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi), (m) => m[0].toLowerCase());
+    const uniqueUuids = Array.from(new Set(pageUuids));
+
+    // 2. Check tab status on profile
+    let pageTabStatus = 'APPROVED';
+    let pageOnSale = true;
+    const subtabs = Array.from(document.querySelectorAll('button, a, div[role="tab"]'));
+    for (const tab of subtabs) {
+      const txt = tab.textContent.trim().toLowerCase();
+      const isActive = tab.getAttribute('aria-selected') === 'true' ||
+        tab.className.toLowerCase().includes('active') ||
+        tab.className.toLowerCase().includes('selected');
+      if (isActive && (txt.includes('заверш') || txt.includes('архив') || txt.includes('неактив'))) {
+        pageTabStatus = 'PAUSED';
+        pageOnSale = false;
+        break;
       }
     }
 
-    return Array.from(offers.values());
+    // 3. Find candidate product cards
+    const cardLinks = Array.from(document.querySelectorAll('a[href*="/products/"], a[href*="/item/"]'));
+    for (const link of cardLinks) {
+      const href = link.getAttribute('href') || link.href || '';
+      const match = href.match(/\/(?:products|item)\/([0-9a-zA-Z-]+)/);
+      if (!match) continue;
+
+      const slug = match[1];
+      const slugIdPart = slug.split('-')[0].toLowerCase();
+
+      // Attempt matching short ID or slug to full UUIDs from page
+      let resolvedId = uniqueUuids.find((u) => u === slugIdPart || u.endsWith(slugIdPart)) || slugIdPart;
+
+      let fiberItem = extractItemFromFiber(link);
+      if (fiberItem && fiberItem.id) {
+        resolvedId = String(fiberItem.id);
+      }
+
+      if (!resolvedId || seenIds.has(resolvedId)) continue;
+      seenIds.add(resolvedId);
+
+      let title = fiberItem?.name || fiberItem?.title;
+      let price = fiberItem?.price;
+      let imageUrl = fiberItem?.imageUrl || fiberItem?.image;
+
+      const cardContainer = link.closest('[class*="card"], [class*="item"], div') || link;
+
+      if (!title) {
+        const textNodes = [];
+        const walker = document.createTreeWalker(cardContainer, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const t = walker.currentNode.textContent.trim();
+          if (t && !t.includes('₽') && !t.includes('дн.') && !t.includes('ч.') && isNaN(Number(t))) {
+            textNodes.push(t);
+          }
+        }
+        title = textNodes.find((t) => t.length > 5) || textNodes[0] || slug;
+      }
+
+      if (price === undefined || isNaN(Number(price))) {
+        const priceEl = Array.from(cardContainer.querySelectorAll('*')).find((el) => {
+          return el.children.length === 0 && el.textContent.includes('₽');
+        });
+        if (priceEl) {
+          const raw = priceEl.textContent.replace(/[^\d]/g, '');
+          price = raw ? Number(raw) : 0;
+        } else {
+          price = 0;
+        }
+      } else {
+        price = Number(price);
+      }
+
+      if (!imageUrl) {
+        const img = cardContainer.querySelector('img');
+        if (img) imageUrl = img.src || img.getAttribute('src');
+      }
+
+      let parsedImageUrl = null;
+      if (typeof imageUrl === 'string') {
+        try {
+          const u = new URL(imageUrl, window.location.origin);
+          if (u.protocol === 'https:') parsedImageUrl = u.href;
+        } catch {}
+      }
+
+      const offer = {
+        externalOfferId: String(resolvedId),
+        title: String(title).trim(),
+        description: fiberItem?.description || null,
+        imageUrl: parsedImageUrl,
+        price: Number.isFinite(price) && price >= 0 ? price : 0,
+        rawPrice: Number.isFinite(price) && price >= 0 ? price : 0,
+        categoryId: String(fiberItem?.categoryId || 'default'),
+        gameId: String(fiberItem?.gameId || 'default'),
+        status: fiberItem?.status || pageTabStatus,
+        keepInSale: fiberItem?.keepInSale ?? pageOnSale,
+        onSale: fiberItem?.onSale ?? pageOnSale
+      };
+
+      scraped.push(offer);
+      discoveredOffersMap.set(offer.externalOfferId, offer);
+    }
+
+    return scraped;
   }
 
   async function scanPaginatedPlayerokOffers() {
@@ -724,23 +886,26 @@
     if (offersSyncing) return { error: 'An offer scan is already running.' };
     offersSyncing = true;
     try {
-      // 1. First, check loaded cache in Apollo Client and Next.js props
-      let detectedOffers = extractAllPlayerokItems();
+      scanNextRscStream();
 
-      // 2. If firstItemsQuery is available and indicates more pages, paginate
+      const cachedOffers = extractAllPlayerokItems();
+      for (const off of cachedOffers) discoveredOffersMap.set(off.externalOfferId, off);
+
+      const domOffers = scrapeOffersFromDom();
+      for (const off of domOffers) discoveredOffersMap.set(off.externalOfferId, off);
+
       if (firstItemsQuery?.connection?.hasNextPage) {
         try {
           const paginated = await scanPaginatedPlayerokOffers();
-          if (Array.isArray(paginated?.offers) && paginated.offers.length > 0) {
-            const merged = new Map();
-            for (const offer of detectedOffers) merged.set(offer.externalOfferId, offer);
-            for (const offer of paginated.offers) merged.set(offer.externalOfferId, offer);
-            detectedOffers = Array.from(merged.values());
+          if (Array.isArray(paginated?.offers)) {
+            for (const off of paginated.offers) discoveredOffersMap.set(off.externalOfferId, off);
           }
         } catch (err) {
           console.warn('[Playerok Bridge] Paginated scan error, falling back to cached offers:', err);
         }
       }
+
+      const detectedOffers = Array.from(discoveredOffersMap.values());
 
       if (detectedOffers.length === 0) {
         return {
@@ -748,6 +913,7 @@
         };
       }
 
+      console.log(`[Playerok Bridge] Successfully detected ${detectedOffers.length} offer(s):`, detectedOffers);
       return { offers: detectedOffers, pagesFetched: 1 };
     } catch (error) {
       console.error('[Playerok Bridge] Could not scan Playerok offers:', error);
@@ -763,15 +929,25 @@
     }
     if (
       typeof itemId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)
+      !/^[0-9a-zA-Z-]{8,64}$/.test(itemId)
     ) {
       return { error: 'Invalid Playerok offer ID.' };
+    }
+
+    let resolvedItemId = itemId;
+    if (resolvedItemId.length < 36) {
+      for (const [id] of discoveredOffersMap.entries()) {
+        if (id.toLowerCase().endsWith(itemId.toLowerCase()) || id.toLowerCase() === itemId.toLowerCase()) {
+          resolvedItemId = id;
+          break;
+        }
+      }
     }
 
     try {
       const response = await originalFetch.call(
         window,
-        `${window.location.origin}/rest-api/public/item/${encodeURIComponent(itemId)}/${action}`,
+        `${window.location.origin}/rest-api/public/item/${encodeURIComponent(resolvedItemId)}/${action}`,
         {
           method: 'POST',
           headers: {
@@ -1163,21 +1339,80 @@
     }, window.location.origin);
   });
 
-  window.fetch = function (...args) {
-    if (!isGraphqlRequest(args[0])) return originalFetch.apply(this, args);
+  function scanUnknownPayloadForOffers(data) {
+    if (!data || typeof data !== 'object') return;
+    const seen = new WeakSet();
+    function walk(node) {
+      if (!node || typeof node !== 'object' || seen.has(node)) return;
+      seen.add(node);
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      if (node.__typename === 'Item' || (node.id && (node.name || node.title) && (node.price !== undefined || node.rawPrice !== undefined))) {
+        const offer = mapPlayerokOffer(node);
+        if (offer) discoveredOffersMap.set(offer.externalOfferId, offer);
+      }
+      for (const child of Object.values(node)) {
+        walk(child);
+      }
+    }
+    walk(data);
+  }
 
-    const requestPromise = captureRequest(args[0], args[1]).catch(() => null);
+  window.fetch = function (...args) {
+    const input = args[0];
+    const init = args[1];
+    const urlStr = getRequestUrl(input);
+
+    if (isGraphqlRequest(input)) {
+      const requestPromise = captureRequest(input, init).catch(() => null);
+      return originalFetch.apply(this, args).then((response) => {
+        Promise.all([requestPromise, response.clone().json()])
+          .then(([request, data]) => {
+            observeOrdersResponse(data, request);
+            observeItemsResponse(data, request);
+            scanUnknownPayloadForOffers(data);
+          })
+          .catch(() => {});
+        return response;
+      });
+    }
 
     return originalFetch.apply(this, args).then((response) => {
-      Promise.all([requestPromise, response.clone().json()])
-        .then(([request, data]) => {
-          observeOrdersResponse(data, request);
-          observeItemsResponse(data, request);
-        })
-        .catch(() => {});
+      try {
+        const contentType = response.headers.get('content-type') || '';
+        if (
+          contentType.includes('application/json') ||
+          urlStr.includes('/rest-api/') ||
+          urlStr.includes('/_next/') ||
+          urlStr.includes('/items') ||
+          urlStr.includes('/products')
+        ) {
+          response.clone().json().then((data) => {
+            scanUnknownPayloadForOffers(data);
+          }).catch(() => {});
+        }
+      } catch {}
       return response;
     });
   };
+
+  const OriginalXHR = window.XMLHttpRequest;
+  window.XMLHttpRequest = function () {
+    const xhr = new OriginalXHR();
+    xhr.addEventListener('load', function () {
+      try {
+        const text = xhr.responseText;
+        if (text && (text.startsWith('{') || text.startsWith('['))) {
+          const data = JSON.parse(text);
+          scanUnknownPayloadForOffers(data);
+        }
+      } catch {}
+    });
+    return xhr;
+  };
+  window.XMLHttpRequest.prototype = OriginalXHR.prototype;
 
   window.addEventListener('message', async (event) => {
     if (
@@ -1193,7 +1428,7 @@
       !['detect', 'republish', 'discontinue'].includes(action) ||
       (action !== 'detect' &&
         (typeof itemId !== 'string' ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)))
+          !/^[0-9a-zA-Z-]{8,64}$/.test(itemId)))
     ) {
       return;
     }
@@ -1206,6 +1441,15 @@
       requestId,
       payload
     }, window.location.origin);
+  });
+
+  window.addEventListener('message', async (event) => {
+    if (event.source !== window || event.data?.source !== 'PLAYEROK_WIDGET_OFFERS_SCAN') return;
+    const payload = await detectPlayerokOffers();
+    window.postMessage({
+      source: 'PLAYEROK_WIDGET_OFFERS_RESULT',
+      payload
+    }, '*');
   });
 
   const OriginalWebSocket = window.WebSocket;

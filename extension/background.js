@@ -29,6 +29,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
+  if (message?.type === 'SYNC_OFFERS_TO_LEDGER') {
+    syncOffersToLedger(message.offers)
+      .then(sendResponse)
+      .catch((err) => {
+        console.error('[Playerok Bridge] Could not sync offers to Ledger:', err);
+        sendResponse({ error: 'Failed to sync offers to Ledger.' });
+      });
+    return true;
+  }
   if (message?.type === 'LEDGER_PLAYEROK_OFFERS_ACTION') {
     if (!isLedgerSender(sender)) {
       sendResponse({ error: 'Offer requests are only accepted from the Ledger app.' });
@@ -69,8 +78,7 @@ async function handlePlayerokOffersAction(action, itemId) {
   }
   if (
     action !== 'detect' &&
-    (typeof itemId !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId))
+    (typeof itemId !== 'string' || !/^[0-9a-zA-Z-]{8,64}$/.test(itemId))
   ) {
     return { error: 'Invalid Playerok offer ID.' };
   }
@@ -276,4 +284,33 @@ function persistLoggedDeals(loggedDeals) {
     console.error('[Playerok Bridge] Could not save the order sync state:', error);
   });
   return write;
+}
+
+async function syncOffersToLedger(offers) {
+  if (!Array.isArray(offers) || offers.length === 0) return { count: 0 };
+  const ledgerTabs = await chrome.tabs.query({
+    url: ['http://localhost/*', 'http://127.0.0.1/*', 'https://ledger-one-gules.vercel.app/*']
+  });
+  const baseUrl = ledgerTabs[0]?.url ? new URL(ledgerTabs[0].url).origin : 'https://ledger-one-gules.vercel.app';
+  const targetUrl = `${baseUrl}/api/offers/batch`;
+
+  const response = await fetch(targetUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-secret': WEBHOOK_SECRET
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      operations: offers.map((offer) => ({
+        action: 'upsert',
+        offer: { ...offer, syncStatus: 'SYNCED' }
+      }))
+    })
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ledger error (HTTP ${response.status}): ${errorText.slice(0, 200)}`);
+  }
+  return { success: true, count: offers.length };
 }

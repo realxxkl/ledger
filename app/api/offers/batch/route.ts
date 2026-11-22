@@ -71,7 +71,14 @@ export async function GET(request: NextRequest) {
 
   try {
     const session = await auth.api.getSession({ headers: request.headers })
-    if (!session?.user) {
+    const webhookSecret = request.headers.get("x-webhook-secret")
+    const isWebhookAuthorized = Boolean(
+      webhookSecret &&
+      process.env.WEBHOOK_SECRET &&
+      webhookSecret === process.env.WEBHOOK_SECRET
+    )
+
+    if (!session?.user && !isWebhookAuthorized) {
       return NextResponse.json({ error: "Unauthorized", requestId }, { status: 401 })
     }
 
@@ -269,7 +276,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const session = await auth.api.getSession({ headers: request.headers })
-    if (!session?.user) {
+    const webhookSecret = request.headers.get("x-webhook-secret")
+    const isWebhookAuthorized = Boolean(
+      webhookSecret &&
+      process.env.WEBHOOK_SECRET &&
+      webhookSecret === process.env.WEBHOOK_SECRET
+    )
+
+    if (!session?.user && !isWebhookAuthorized) {
       return NextResponse.json({ error: "Unauthorized", requestId }, { status: 401 })
     }
 

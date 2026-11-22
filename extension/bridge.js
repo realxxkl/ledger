@@ -245,23 +245,76 @@
     }
   }
 
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.source !== 'PLAYEROK_WIDGET_OFFERS_RESULT') return;
+    const result = event.data.payload || {};
+    const statusEl = document.getElementById('pk-offers-status');
+    const btn = document.getElementById('pk-sync-offers-btn');
+    if (btn) btn.disabled = false;
+    if (!statusEl) return;
+
+    if (result.error) {
+      statusEl.innerText = `Offers: ${result.error}`;
+      statusEl.style.color = '#f87171';
+    } else {
+      const count = result.offers?.length || 0;
+      if (count === 0) {
+        statusEl.innerText = 'Offers: No items found on page';
+        statusEl.style.color = '#f87171';
+        return;
+      }
+
+      statusEl.innerText = `Offers: Found ${count}! Syncing to Ledger...`;
+      statusEl.style.color = '#10b981';
+
+      chrome.runtime.sendMessage({
+        type: 'SYNC_OFFERS_TO_LEDGER',
+        offers: result.offers
+      }, (res) => {
+        if (res?.error) {
+          statusEl.innerText = `Offers: ${res.error}`;
+          statusEl.style.color = '#f87171';
+        } else {
+          statusEl.innerText = `Offers: ${count} synced to Ledger!`;
+          statusEl.style.color = '#10b981';
+        }
+      });
+    }
+  });
+
   function mountSyncWidget() {
     if (document.getElementById('pk-sync-bar')) return;
     const bar = document.createElement('div');
     bar.id = 'pk-sync-bar';
-    bar.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:999999;background:rgba(15,23,42,0.92);backdrop-filter:blur(8px);color:#f8fafc;padding:8px 12px;border-radius:8px;border:1px solid #3c80fe;box-shadow:0 8px 20px rgba(0,0,0,0.5);font-family:sans-serif;font-size:12px;display:flex;gap:10px;align-items:center;';
+    bar.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:999999;background:rgba(15,23,42,0.95);backdrop-filter:blur(8px);color:#f8fafc;padding:10px 14px;border-radius:10px;border:1px solid #3c80fe;box-shadow:0 8px 24px rgba(0,0,0,0.6);font-family:sans-serif;font-size:12px;display:flex;flex-direction:column;gap:8px;min-width:250px;';
     bar.innerHTML = `
-      <span id="pk-sync-status" style="color:#94a3b8;font-weight:500;">Bridge Ready</span>
-      <button id="pk-sync-btn" style="background:#3c80fe;color:#fff;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">
-        Sync Pending
-      </button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <span id="pk-offers-status" style="color:#10b981;font-weight:600;">Offers: Ready</span>
+        <button id="pk-sync-offers-btn" style="background:#10b981;color:#fff;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">
+          Sync Offers
+        </button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,0.12);padding-top:6px;">
+        <span id="pk-sync-status" style="color:#94a3b8;font-weight:500;">Orders: Ready</span>
+        <button id="pk-sync-btn" style="background:#3c80fe;color:#fff;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">
+          Sync Orders
+        </button>
+      </div>
     `;
     document.body.appendChild(bar);
+
+    document.getElementById('pk-sync-offers-btn').onclick = (event) => {
+      const statusEl = document.getElementById('pk-offers-status');
+      event.currentTarget.disabled = true;
+      statusEl.innerText = 'Scanning offers...';
+      statusEl.style.color = '#38bdf8';
+      window.postMessage({ source: 'PLAYEROK_WIDGET_OFFERS_SCAN' }, '*');
+    };
 
     document.getElementById('pk-sync-btn').onclick = (event) => {
       const statusEl = document.getElementById('pk-sync-status');
       event.currentTarget.disabled = true;
-      statusEl.innerText = 'Syncing...';
+      statusEl.innerText = 'Syncing orders...';
       window.postMessage({ source: 'PLAYEROK_FORCE_SYNC' }, '*');
     };
   }

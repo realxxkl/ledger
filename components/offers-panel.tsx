@@ -79,7 +79,7 @@ function isDetectedPlayerokOffer(value: unknown): value is DetectedPlayerokOffer
   return Boolean(
     isRecord(value) &&
       typeof value.externalOfferId === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.externalOfferId) &&
+      /^[0-9a-zA-Z-]{8,64}$/.test(value.externalOfferId) &&
       typeof value.title === "string" &&
       (typeof value.description === "string" || value.description === null) &&
       (typeof value.imageUrl === "string" || value.imageUrl === null) &&
@@ -131,7 +131,7 @@ function requestPlayerokOffers(action: "detect" | "republish" | "discontinue", i
 }
 
 function isPlayerokOfferId(value: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  return /^[0-9a-zA-Z-]{8,64}$/.test(value)
 }
 
 function isOffer(value: unknown): value is Offer {

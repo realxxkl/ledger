@@ -101,8 +101,7 @@
       !/^[a-zA-Z0-9-]{1,100}$/.test(requestId) ||
       !['detect', 'republish', 'discontinue'].includes(action) ||
       (action !== 'detect' &&
-        (typeof itemId !== 'string' ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)))
+        (typeof itemId !== 'string' || !/^[0-9a-zA-Z-]{8,64}$/.test(itemId)))
     ) {
       return;
     }
