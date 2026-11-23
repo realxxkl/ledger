@@ -38,6 +38,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
+  if (message?.type === 'SYNC_COOKIES_TO_LEDGER') {
+    syncPlayerokCookiesToLedger()
+      .then(sendResponse)
+      .catch((err) => {
+        console.error('[Playerok Bridge] Could not sync cookies to Ledger:', err);
+        sendResponse({ error: err.message || 'Failed to sync cookies to Ledger.' });
+      });
+    return true;
+  }
   if (message?.type === 'LEDGER_PLAYEROK_OFFERS_ACTION') {
     if (!isLedgerSender(sender)) {
       sendResponse({ error: 'Offer requests are only accepted from the Ledger app.' });
@@ -238,6 +247,7 @@ async function processDealsPayload(deals, tabId, forceSync) {
             price: deal.price,
             currency: deal.currency || 'RUB',
             buyerUsername: deal.buyerUsername,
+            chatId: deal.chatId || null,
             timestamp: deal.timestamp
           })
         });
@@ -313,4 +323,39 @@ async function syncOffersToLedger(offers) {
     throw new Error(`Ledger error (HTTP ${response.status}): ${errorText.slice(0, 200)}`);
   }
   return { success: true, count: offers.length };
+}
+
+async function syncPlayerokCookiesToLedger() {
+  try {
+    const cookies = await chrome.cookies.getAll({ domain: 'playerok.com' });
+    if (!cookies || cookies.length === 0) {
+      return { error: 'No Playerok cookies found in Chrome. Make sure you are logged in to Playerok.' };
+    }
+
+    const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    const ledgerTabs = await chrome.tabs.query({
+      url: ['http://localhost/*', 'http://127.0.0.1/*', 'https://ledger-one-gules.vercel.app/*']
+    });
+    const baseUrl = ledgerTabs[0]?.url ? new URL(ledgerTabs[0].url).origin : 'https://ledger-one-gules.vercel.app';
+    const targetUrl = `${baseUrl}/api/playerok/session`;
+
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-webhook-secret': WEBHOOK_SECRET
+      },
+      body: JSON.stringify({ cookies: cookieString })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { error: `Ledger error (HTTP ${res.status}): ${errText.slice(0, 200)}` };
+    }
+
+    const data = await res.json();
+    return { success: true, count: cookies.length, updatedAt: data.updatedAt };
+  } catch (err) {
+    return { error: err.message || 'Failed to sync cookies to Ledger.' };
+  }
 }

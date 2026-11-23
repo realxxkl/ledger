@@ -85,6 +85,7 @@ export const entries = pgTable("entries", {
   externalOrderId: text("external_order_id"),
   source: text("source"),
   buyerUsername: text("buyer_username"),
+  chatId: text("chat_id"),
   waitingSince: text("waiting_since"),
   vbucksBefore: integer("vbucks_before"),
   vbucksAfter: integer("vbucks_after"),
@@ -135,3 +136,9 @@ export const offers = pgTable("offers", {
 }, (table) => ({
   externalOfferIdUnique: uniqueIndex("offers_external_offer_id_unique").on(table.externalOfferId),
 }))
+
+export const playerokSession = pgTable("playerok_session", {
+  id: serial("id").primaryKey(),
+  cookies: text("cookies").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})

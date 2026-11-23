@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
     const orderId = typeof body.orderId === "string" ? body.orderId.trim() : ""
     const itemTitle = typeof body.itemTitle === "string" ? body.itemTitle.trim() : ""
     const buyerUsername = typeof body.buyerUsername === "string" ? body.buyerUsername.trim() : ""
+    const chatId = typeof body.chatId === "string" ? body.chatId.trim() : null
     const status = typeof body.status === "string" ? body.status.toUpperCase() : ""
     const isRefunded = status === "REFUNDED" || status === "REFUND"
     const price = Number(body.price)
@@ -134,6 +135,7 @@ export async function POST(request: NextRequest) {
       id: entries.id,
       orderStatus: entries.orderStatus,
       buyerUsername: entries.buyerUsername,
+      chatId: entries.chatId,
       waitingSince: entries.waitingSince,
     })
       .from(entries)
@@ -144,6 +146,7 @@ export async function POST(request: NextRequest) {
     let alreadyLogged = Boolean(entryId)
     let existingStatus = existing[0]?.orderStatus
     let existingBuyerUsername = existing[0]?.buyerUsername
+    let existingChatId = existing[0]?.chatId
     let existingWaitingSince = existing[0]?.waitingSince
     if (!entryId) {
       const inserted = await db.insert(entries).values({
@@ -162,6 +165,7 @@ export async function POST(request: NextRequest) {
         externalOrderId: orderId,
         source: "playerok",
         buyerUsername: buyerUsername || null,
+        chatId: chatId || null,
         waitingSince: timestamp.toISOString(),
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
@@ -173,6 +177,7 @@ export async function POST(request: NextRequest) {
           id: entries.id,
           orderStatus: entries.orderStatus,
           buyerUsername: entries.buyerUsername,
+          chatId: entries.chatId,
           waitingSince: entries.waitingSince,
         })
           .from(entries)
@@ -181,6 +186,7 @@ export async function POST(request: NextRequest) {
         entryId = conflict[0]?.id
         existingStatus = conflict[0]?.orderStatus
         existingBuyerUsername = conflict[0]?.buyerUsername
+        existingChatId = conflict[0]?.chatId
         existingWaitingSince = conflict[0]?.waitingSince
         alreadyLogged = Boolean(entryId)
       }
@@ -219,6 +225,7 @@ export async function POST(request: NextRequest) {
         orderFee,
         source: "playerok",
         buyerUsername: buyerUsername || existingBuyerUsername || null,
+        chatId: chatId || existingChatId || null,
         waitingSince:
           existingWaitingSince && !/^\d{4}-\d{2}-\d{2}$/.test(existingWaitingSince)
             ? existingWaitingSince

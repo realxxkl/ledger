@@ -486,6 +486,33 @@ export function PendingOrders({
     setMessageSendError("")
     setMessageSendResults([])
     try {
+      // 1. Try server-side sending using synced Playerok cookies
+      const serverRes = await fetch("/api/playerok/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipients: messagePreview.recipients,
+          messageText: messagePreview.message,
+        }),
+      })
+
+      const serverData = await serverRes.json()
+      if (serverRes.ok && Array.isArray(serverData?.results) && serverData.results.length > 0) {
+        setMessageSendResults(serverData.results)
+        setMessagePreview(null)
+        if (serverData.stopped) {
+          setMessageSendError("The queue stopped after a send failure. Remaining buyers were not contacted.")
+        }
+        return
+      }
+
+      const serverError = serverData?.error || ""
+      if (serverError.includes("No Playerok session cookies")) {
+        setMessageSendError("No cookies saved on Ledger yet. Click [Sync Cookies] in the Playerok extension widget to upload your cookies.")
+        return
+      }
+
+      // Fallback: try extension bridge if server returned an error
       const response = await requestPlayerokMessages(messagePreview.recipients, messagePreview.message)
       setMessageSendResults(response.results)
       setMessagePreview(null)

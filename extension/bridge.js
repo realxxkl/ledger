@@ -300,6 +300,12 @@
           Sync Orders
         </button>
       </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,0.12);padding-top:6px;">
+        <span id="pk-cookies-status" style="color:#e2e8f0;font-weight:500;">Cookies: Ready</span>
+        <button id="pk-sync-cookies-btn" style="background:#8b5cf6;color:#fff;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:12px;">
+          Sync Cookies
+        </button>
+      </div>
     `;
     document.body.appendChild(bar);
 
@@ -316,6 +322,24 @@
       event.currentTarget.disabled = true;
       statusEl.innerText = 'Syncing orders...';
       window.postMessage({ source: 'PLAYEROK_FORCE_SYNC' }, '*');
+    };
+
+    document.getElementById('pk-sync-cookies-btn').onclick = (event) => {
+      const statusEl = document.getElementById('pk-cookies-status');
+      const btn = event.currentTarget;
+      btn.disabled = true;
+      statusEl.innerText = 'Syncing cookies...';
+      statusEl.style.color = '#c084fc';
+      chrome.runtime.sendMessage({ type: 'SYNC_COOKIES_TO_LEDGER' }, (res) => {
+        btn.disabled = false;
+        if (res?.error) {
+          statusEl.innerText = `Cookies: ${res.error}`;
+          statusEl.style.color = '#f87171';
+        } else {
+          statusEl.innerText = `Cookies: ${res.count} synced!`;
+          statusEl.style.color = '#a855f7';
+        }
+      });
     };
   }
 

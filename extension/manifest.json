@@ -5,7 +5,8 @@
   "description": "Syncs Playerok offers and orders with the Ledger and sends reviewed messages to selected buyers.",
   "permissions": [
     "storage",
-    "scripting"
+    "scripting",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.playerok.com/*",
