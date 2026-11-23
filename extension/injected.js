@@ -357,24 +357,27 @@
       const rawQueryStr = typeof item.query === 'string' ? item.query : '';
       if (!rawQueryStr) continue;
 
+      // Never capture user profile query
+      if (item.operationName === 'user' || /^\s*query\s+user\b/i.test(rawQueryStr)) {
+        continue;
+      }
+
       const queryStr = deduplicateGraphQLFragments(rawQueryStr);
 
       const isDealsQuery =
-        /ItemDeal/i.test(queryStr) ||
-        /\bdeals\b/i.test(queryStr) ||
-        /\bdeal\s*\(/i.test(queryStr) ||
+        /deals\s*[({\[]/i.test(queryStr) ||
+        /\bdeals\s*:/i.test(queryStr) ||
         /getProfileSales/i.test(queryStr) ||
-        /direction\s*:\s*OUT/i.test(queryStr) ||
-        item.operationName === 'getProfileSales' ||
-        item.operationName === 'profileSales' ||
-        item.operationName === 'getDeals' ||
-        item.operationName === 'getDeal';
+        /profileSales/i.test(queryStr) ||
+        /getDeals/i.test(queryStr) ||
+        /\bItemDeal\b/i.test(queryStr) ||
+        /direction\s*:\s*OUT/i.test(queryStr);
 
       if (isDealsQuery) {
         const queryData = JSON.stringify({
           query: queryStr,
           variables: item.variables || {},
-          operationName: item.operationName || null
+          operationName: item.operationName || extractOperationName(queryStr) || null
         });
         try {
           sessionStorage.setItem('__pk_orders_query__', queryData);
@@ -396,11 +399,15 @@
         for (const q of list) {
           const doc = q?.document;
           const queryStr = doc?.loc?.source?.body || '';
-          if (queryStr && (/ItemDeal/i.test(queryStr) || /\bdeals\b/i.test(queryStr) || /\bdeal\b/i.test(queryStr))) {
+          const opName = doc?.definitions?.[0]?.name?.value || '';
+          if (opName === 'user' || /^\s*query\s+user\b/i.test(queryStr)) continue;
+
+          if (queryStr && (/deals\s*[({\[]/i.test(queryStr) || /getProfileSales/i.test(queryStr) || /ItemDeal/i.test(queryStr))) {
+            const cleanQuery = deduplicateGraphQLFragments(queryStr);
             const data = {
-              query: queryStr,
+              query: cleanQuery,
               variables: q.variables || {},
-              operationName: doc?.definitions?.[0]?.name?.value || null
+              operationName: opName || extractOperationName(cleanQuery) || null
             };
             const serialized = JSON.stringify(data);
             try {
@@ -1392,17 +1399,6 @@
           cursorVariable,
           initialOrderCount: (deals || []).length
         };
-        try {
-          if (requestPayload.query) {
-            const queryData = JSON.stringify({
-              query: requestPayload.query,
-              variables: requestPayload.variables || {},
-              operationName: requestPayload.operationName || null
-            });
-            sessionStorage.setItem('__pk_orders_query__', queryData);
-            localStorage.setItem('__pk_orders_query__', queryData);
-          }
-        } catch (_) {}
       }
     });
   }
