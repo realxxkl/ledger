@@ -1,5 +1,19 @@
 (function () {
-  const TARGET_STATUSES = new Set(['PAID', 'IN_PROGRESS', 'PENDING', 'SENT', 'REFUNDED']);
+  const TARGET_STATUSES = new Set([
+    'PAID',
+    'IN_PROGRESS',
+    'PENDING',
+    'SENT',
+    'REFUNDED',
+    'REFUND',
+    'ROLLED_BACK',
+    'ROLLEDBACK',
+    'ROLLED-BACK',
+    'CANCELLED',
+    'CANCELED',
+    'DISPUTED',
+    'DISPUTE'
+  ]);
   const MAX_SYNC_PAGES = 1000;
   const originalFetch = window.fetch;
   let lastEmittedHash = '';
@@ -93,13 +107,22 @@
       ? Number(transaction.value)
       : Number((rawPrice * 0.9).toFixed(2));
 
+    const isRefunded =
+      status === 'REFUNDED' ||
+      status === 'REFUND' ||
+      status === 'ROLLED_BACK' ||
+      status === 'ROLLEDBACK' ||
+      status === 'ROLLED-BACK' ||
+      status === 'CANCELLED' ||
+      status === 'CANCELED';
+
     return {
       id: String(deal.id),
-      status: status === 'SENT' ? 'IN_PROGRESS' : status,
+      status: isRefunded ? 'REFUNDED' : (status === 'SENT' ? 'IN_PROGRESS' : status),
       itemTitle: item.name || item.title || 'Playerok Order',
-      price: netAmountRub,
+      price: isRefunded ? 0 : netAmountRub,
       currency: 'RUB',
-      rawPrice,
+      rawPrice: isRefunded ? 0 : rawPrice,
       buyerUsername,
       chatId: chatId ? String(chatId) : null,
       credentials: credentials || null,
@@ -238,14 +261,72 @@
     return deals.length;
   }
 
+  let lastBackgroundRefundScan = 0;
+  async function scanRefundedDealsInBackground() {
+    const now = Date.now();
+    if (now - lastBackgroundRefundScan < 15000) return;
+    lastBackgroundRefundScan = now;
+
+    try {
+      const url = new URL(window.location.href);
+      let targetPath = null;
+      if (/^\/profile\/[^/]+\/sales\/?$/.test(url.pathname)) {
+        targetPath = `${url.pathname}?status=rolled-back`;
+      } else {
+        const salesLink = document.querySelector('a[href*="/sales"]');
+        if (salesLink?.href) {
+          const u = new URL(salesLink.href, window.location.href);
+          targetPath = `${u.pathname}?status=rolled-back`;
+        }
+      }
+      if (!targetPath) return;
+
+      const resp = await originalFetch.call(window, targetPath, {
+        headers: { accept: 'text/html' },
+        credentials: 'include'
+      });
+      if (!resp.ok) return;
+      const html = await resp.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+
+      const seenIds = new Set();
+      const deals = [];
+      for (const link of doc.querySelectorAll('a[href*="/deal/"]')) {
+        const path = new URL(link.href, window.location.href).pathname;
+        const match = path.match(/^\/deal\/([^/]+)\/?$/);
+        if (!match || seenIds.has(match[1])) continue;
+        seenIds.add(match[1]);
+        deals.push({
+          id: match[1],
+          status: 'REFUNDED',
+          itemTitle: '',
+          price: 0,
+          currency: 'RUB',
+          buyerUsername: null,
+          chatId: dealChatMap.get(match[1])?.chatId || null,
+          timestamp: new Date().toISOString()
+        });
+      }
+      if (deals.length > 0) {
+        emitDeals(deals, true);
+      }
+    } catch (_) {}
+  }
+
   function observeRefundedOrdersPage() {
-    if (!isRefundedOrdersPage() || typeof MutationObserver === 'undefined' || !document.documentElement) return;
+    scanRefundedDealsInBackground();
+    if (typeof MutationObserver === 'undefined' || !document.documentElement) return;
 
     const observer = new MutationObserver(() => {
       if (refundScanTimer !== null) clearTimeout(refundScanTimer);
       refundScanTimer = setTimeout(() => {
         refundScanTimer = null;
-        extractRefundedDealsFromPage(false);
+        if (isRefundedOrdersPage()) {
+          extractRefundedDealsFromPage(false);
+        } else {
+          scanRefundedDealsInBackground();
+        }
       }, 500);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -2015,6 +2096,7 @@
 
     if (event.data?.source === 'PLAYEROK_FORCE_SYNC') {
       emitChatMappings();
+      scanRefundedDealsInBackground();
       const orderCount = extractFromApolloCache(true);
       const refundedOrderCount = extractRefundedDealsFromPage(true);
       if (isRefundedOrdersPage()) {

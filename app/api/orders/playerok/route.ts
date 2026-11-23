@@ -80,7 +80,17 @@ export async function POST(request: NextRequest) {
     const buyerUsername = typeof body.buyerUsername === "string" ? body.buyerUsername.trim() : ""
     const chatId = typeof body.chatId === "string" ? body.chatId.trim() : null
     const status = typeof body.status === "string" ? body.status.toUpperCase() : ""
-    const isRefunded = status === "REFUNDED" || status === "REFUND"
+    const isRefunded = [
+      "REFUNDED",
+      "REFUND",
+      "ROLLED_BACK",
+      "ROLLEDBACK",
+      "ROLLED-BACK",
+      "CANCELLED",
+      "CANCELED",
+      "DISPUTE_REFUNDED",
+      "VOID",
+    ].includes(status)
     const price = Number(body.price)
     const currency = typeof body.currency === "string" ? body.currency.toUpperCase() : "USD"
     const timestampValue = typeof body.timestamp === "string" ? body.timestamp : ""
@@ -111,7 +121,19 @@ export async function POST(request: NextRequest) {
     if (
       !orderId ||
       !itemTitle ||
-      !["PAID", "IN_PROGRESS", "PENDING", "REFUNDED", "REFUND"].includes(status) ||
+      ![
+        "PAID",
+        "IN_PROGRESS",
+        "PENDING",
+        "SENT",
+        "REFUNDED",
+        "REFUND",
+        "ROLLED_BACK",
+        "ROLLEDBACK",
+        "ROLLED-BACK",
+        "CANCELLED",
+        "CANCELED",
+      ].includes(status) ||
       !["USD", "RUB"].includes(currency) ||
       !Number.isFinite(price) ||
       price < 0 ||

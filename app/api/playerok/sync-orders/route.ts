@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { desc, eq, or } from "drizzle-orm"
+import { and, desc, eq, or } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
@@ -85,6 +85,25 @@ const DEFAULT_DEALS_QUERY = `
     }
   }
 `
+
+function isPlayerokDealRefunded(val: any): boolean {
+  if (!val) return false
+  const status = String(val.status || "").toUpperCase()
+  return (
+    status === "REFUNDED" ||
+    status === "REFUND" ||
+    status === "ROLLED_BACK" ||
+    status === "ROLLEDBACK" ||
+    status === "ROLLED-BACK" ||
+    status === "CANCELLED" ||
+    status === "CANCELED" ||
+    status === "DISPUTE_REFUNDED" ||
+    status === "VOID" ||
+    val.isRefunded === true ||
+    val.isRolledBack === true ||
+    Boolean(val.rolledBackAt || val.refundedAt)
+  )
+}
 
 function findPageInfo(obj: any): { hasNextPage: boolean; cursor: string | null } | null {
   if (!obj || typeof obj !== "object") return null
@@ -394,6 +413,148 @@ export async function POST(request: NextRequest) {
       await new Promise((r) => setTimeout(r, 100))
     }
 
+    // 4. Query rolled-back / refunded deals tab via GraphQL
+    function buildRefundedVariables(vars: Record<string, unknown>, statusVal = "ROLLED_BACK"): Record<string, unknown> | null {
+      const next = JSON.parse(JSON.stringify(vars))
+      let replaced = false
+      function replaceStatus(obj: any): boolean {
+        if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false
+        for (const key of Object.keys(obj)) {
+          if (/^status(es)?$/i.test(key)) {
+            if (Array.isArray(obj[key])) {
+              obj[key] = [statusVal]
+            } else {
+              obj[key] = statusVal
+            }
+            replaced = true
+            return true
+          }
+          if (replaceStatus(obj[key])) return true
+        }
+        return false
+      }
+
+      replaceStatus(next)
+      if (!replaced && next.filter && typeof next.filter === "object" && !Array.isArray(next.filter)) {
+        ;(next.filter as Record<string, unknown>).status = statusVal
+        replaced = true
+      }
+      return replaced ? next : null
+    }
+
+    const rolledBackStatusOptions = ["ROLLED_BACK", "rolled-back", "REFUNDED"]
+    for (const rbStatus of rolledBackStatusOptions) {
+      const rbVars = buildRefundedVariables(parsedVariables, rbStatus)
+      if (!rbVars) continue
+      try {
+        const rbResp = await fetch(graphqlUrl, {
+          method: "POST",
+          headers: requestHeaders,
+          body: JSON.stringify({
+            ...(operationName ? { operationName } : {}),
+            query: cleanQuery,
+            variables: rbVars,
+          }),
+        })
+        if (rbResp.ok) {
+          const rbData = await rbResp.json()
+          if (!rbData.errors || rbData.errors.length === 0) {
+            findDeals(rbData?.data ?? rbData)
+            const hasMore = findPageInfo(rbData?.data ?? rbData)
+            if (hasMore) break
+          }
+        }
+      } catch {}
+    }
+
+    // Also scan rolled-back sales page HTML if profile userId can be resolved
+    try {
+      function findUserId(obj: any): string | null {
+        if (!obj || typeof obj !== "object") return null
+        if (typeof obj.userId === "string" && obj.userId.length >= 8) return obj.userId
+        for (const val of Object.values(obj)) {
+          const found = findUserId(val)
+          if (found) return found
+        }
+        return null
+      }
+      const profileUserId = findUserId(parsedVariables)
+      if (profileUserId) {
+        const htmlResp = await fetch(`https://playerok.com/profile/${encodeURIComponent(profileUserId)}/sales?status=rolled-back`, {
+          headers: {
+            "Cookie": cookieString,
+            "User-Agent": requestHeaders["User-Agent"] || "Mozilla/5.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://playerok.com/",
+          },
+        })
+        if (htmlResp.ok) {
+          const html = await htmlResp.text()
+          const dealIdMatches = html.matchAll(/\/deal\/([a-zA-Z0-9_-]{8,64})/g)
+          for (const m of dealIdMatches) {
+            const rawId = m[1].toLowerCase()
+            if (!seenNodeIds.has(rawId)) {
+              seenNodeIds.add(rawId)
+              nodes.push({
+                id: m[1],
+                status: "REFUNDED",
+                __typename: "ItemDeal",
+                direction: "OUT",
+              })
+            }
+          }
+        }
+      }
+    } catch {}
+
+    // Check currently pending Ledger orders that were NOT returned in active deals
+    try {
+      const pendingLedgerOrders = await db.select({
+        id: entries.id,
+        externalOrderId: entries.externalOrderId,
+      })
+        .from(entries)
+        .where(
+          and(
+            or(eq(entries.source, "playerok"), eq(entries.platform, "PO")),
+            or(eq(entries.orderStatus, "New Order Received"), eq(entries.orderStatus, "In Progress"))
+          )
+        )
+
+      for (const pendingOrder of pendingLedgerOrders) {
+        const extId = pendingOrder.externalOrderId ? String(pendingOrder.externalOrderId).trim().toLowerCase() : null
+        if (!extId || seenNodeIds.has(extId)) continue
+
+        try {
+          const singleDealQuery = `query checkDealStatus($id: ID!) { deal(id: $id) { id status } }`
+          const dealResp = await fetch(graphqlUrl, {
+            method: "POST",
+            headers: requestHeaders,
+            body: JSON.stringify({
+              operationName: "checkDealStatus",
+              query: singleDealQuery,
+              variables: { id: pendingOrder.externalOrderId },
+            }),
+          })
+          if (dealResp.ok) {
+            const dealData = await dealResp.json()
+            const fetchedDeal = dealData?.data?.deal
+            if (fetchedDeal && isPlayerokDealRefunded(fetchedDeal)) {
+              seenNodeIds.add(extId)
+              nodes.push({
+                id: pendingOrder.externalOrderId,
+                status: "REFUNDED",
+                __typename: "ItemDeal",
+                direction: "OUT",
+              })
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+
+    let refundedCount = 0
+
     for (const deal of nodes) {
       const orderId = String(deal.id || "").trim()
       if (!orderId) continue
@@ -401,8 +562,10 @@ export async function POST(request: NextRequest) {
       const itemTitle = deal.item?.name || deal.item?.title || "Playerok Order"
       const buyerUsername = deal.user?.username || null
       const chatId = deal.chat?.id ? String(deal.chat.id).trim() : (deal.chatId ? String(deal.chatId).trim() : null)
-      const status = String(deal.status || "").toUpperCase()
-      const isRefunded = status === "REFUNDED" || status === "REFUND"
+      const isRefunded = isPlayerokDealRefunded(deal)
+      if (isRefunded) {
+        refundedCount += 1
+      }
       const rawPrice = Number(deal.item?.price ?? deal.item?.rawPrice ?? 0)
       const transactionValue = deal.transaction?.value !== undefined && deal.transaction?.value !== null
         ? Number(deal.transaction.value)
@@ -446,9 +609,9 @@ export async function POST(request: NextRequest) {
           paid: "0",
           profit: "0",
           orderStatus: isRefunded ? "Refunded" : "New Order Received",
-          orderAmount: ledgerAmount,
-          orderCost,
-          orderFee,
+          orderAmount: isRefunded ? "0" : ledgerAmount,
+          orderCost: isRefunded ? "0" : orderCost,
+          orderFee: isRefunded ? "0" : orderFee,
           externalOrderId: orderId,
           source: "playerok",
           buyerUsername,
@@ -468,6 +631,12 @@ export async function POST(request: NextRequest) {
           orderStatus: nextStatus,
           buyerUsername: buyerUsername || existing[0]?.buyerUsername || null,
           chatId: chatId || existing[0]?.chatId || null,
+          ...(isRefunded ? {
+            earned: "0",
+            paid: "0",
+            feeAmt: "0",
+            profit: "0",
+          } : {})
         }).where(eq(entries.id, entryId))
         alreadyLogged += 1
         updated += 1
@@ -482,8 +651,9 @@ export async function POST(request: NextRequest) {
       accepted,
       updated,
       alreadyLogged,
+      refunded: refundedCount,
       message: nodes.length > 0
-        ? `Found ${nodes.length} order(s): ${accepted} new, ${updated} updated.`
+        ? `Found ${nodes.length} order(s): ${accepted} new, ${updated} updated${refundedCount > 0 ? `, ${refundedCount} refunded` : ""}.`
         : `Found 0 order(s) (op: ${operationName || "none"}, data: ${debugSnippet})`,
     })
   } catch (error) {
