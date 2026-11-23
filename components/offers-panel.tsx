@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Archive, ExternalLink, LoaderCircle, Power, PowerOff, RefreshCw, RotateCcw, Search } from "lucide-react"
+import { Archive, ExternalLink, LoaderCircle, Power, PowerOff, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react"
 
 function rubPrice(n: number) {
   return n.toLocaleString("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 })
@@ -149,6 +149,7 @@ export function OffersPanel() {
   const [bulkSaleStatus, setBulkSaleStatus] = useState<boolean | null>(null)
   const [bulkProgress, setBulkProgress] = useState("")
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
 
@@ -227,6 +228,35 @@ export function OffersPanel() {
     })
   }
 
+
+  async function clearAllOffers() {
+    if (loading || clearing) return
+    if (!window.confirm("Are you sure you want to clear all offers from Ledger? You can re-import them with Detect Playerok offers.")) {
+      return
+    }
+
+    setClearing(true)
+    setError("")
+    setNotice("")
+
+    try {
+      const response = await fetch("/api/offers/batch", { method: "DELETE" })
+      const payload: unknown = await response.json()
+      if (!response.ok) {
+        const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+          ? payload.error
+          : "Could not clear offers."
+        throw new Error(message)
+      }
+      setOffers([])
+      setSelectedOfferIds(new Set())
+      setNotice("All offers have been cleared from the dashboard.")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear offers.")
+    } finally {
+      setClearing(false)
+    }
+  }
 
   async function archiveOffer(offer: Offer) {
     if (busyOfferId) return
@@ -500,11 +530,25 @@ export function OffersPanel() {
             <ExternalLink className="size-4" aria-hidden="true" />
             Open Playerok
           </a>
-          <button type="button" onClick={() => void loadOffers()} disabled={loading} className={outlineButton}>
+          <button type="button" onClick={() => void loadOffers()} disabled={loading || clearing} className={outlineButton}>
             {loading
               ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
               : <RefreshCw className="size-4" aria-hidden="true" />}
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => void clearAllOffers()}
+            disabled={loading || clearing || offers.length === 0}
+            className={`${outlineButton} hover:border-negative hover:text-negative`}
+            title="Clear all offers from Ledger"
+          >
+            {clearing ? (
+              <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <Trash2 className="size-4" aria-hidden="true" />
+            )}
+            Clear all
           </button>
         </div>
       </header>

@@ -112,6 +112,36 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  const requestId = crypto.randomUUID()
+
+  try {
+    const session = await auth.api.getSession({ headers: request.headers })
+    const webhookSecret = request.headers.get("x-webhook-secret")
+    const isWebhookAuthorized = Boolean(
+      webhookSecret &&
+      process.env.WEBHOOK_SECRET &&
+      webhookSecret === process.env.WEBHOOK_SECRET
+    )
+
+    if (!session?.user && !isWebhookAuthorized) {
+      return NextResponse.json({ error: "Unauthorized", requestId }, { status: 401 })
+    }
+
+    await ensureOffersSchema()
+    await db.delete(offers)
+
+    return NextResponse.json({ success: true, message: "All offers cleared.", requestId })
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "offers.clear.failed",
+      requestId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    }))
+    return NextResponse.json({ error: "Failed to clear offers.", requestId }, { status: 500 })
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value))
 }
