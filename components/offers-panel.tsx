@@ -381,40 +381,71 @@ export function OffersPanel() {
 
   async function savePlayerokSaleStatus(offer: Offer, nextOnSale: boolean) {
     const action = nextOnSale ? "republish" : "discontinue"
-    const result = await requestPlayerokOffers(action, offer.externalOfferId)
-    if (result.success !== true || result.onSale !== nextOnSale) {
-      throw new Error(typeof result.error === "string" ? result.error : "Playerok did not confirm the requested offer status.")
+    let updatedViaServer = false
+    let serverErrorMessage = ""
+
+    // 1. Try server-side status change first (works anywhere from phone or PC without tabs open)
+    try {
+      const response = await fetch("/api/playerok/offers/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId: offer.externalOfferId,
+          action,
+        }),
+      })
+      const data = await response.json()
+      if (response.ok && data.success) {
+        updatedViaServer = true
+      } else {
+        serverErrorMessage = data.error || `Server error (HTTP ${response.status})`
+      }
+    } catch (err) {
+      serverErrorMessage = err instanceof Error ? err.message : "Server request failed"
     }
 
-    const response = await fetch("/api/offers/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        operations: [{
-          action: "upsert",
-          offer: {
-            externalOfferId: offer.externalOfferId,
-            title: offer.title,
-            description: offer.description,
-            imageUrl: offer.imageUrl,
-            price: Number(offer.price),
-            rawPrice: Number(offer.rawPrice),
-            categoryId: offer.categoryId,
-            gameId: offer.gameId,
-            status: offer.status,
-            keepInSale: offer.keepInSale,
-            onSale: nextOnSale,
-            syncStatus: "SYNCED",
-          },
-        }],
-      }),
-    })
-    const payload: unknown = await response.json()
-    if (!response.ok) {
-      const message = isRecord(payload) && typeof payload.error === "string"
-        ? payload.error
-        : "The Ledger mirror could not be updated."
-      throw new Error(`Playerok was updated, but the Ledger mirror was not: ${message}`)
+    // 2. If server failed, try browser extension as fallback
+    if (!updatedViaServer) {
+      try {
+        const result = await requestPlayerokOffers(action, offer.externalOfferId)
+        if (result.success !== true || result.onSale !== nextOnSale) {
+          throw new Error(typeof result.error === "string" ? result.error : serverErrorMessage || "Playerok did not confirm the requested offer status.")
+        }
+      } catch (extErr) {
+        throw new Error(serverErrorMessage || (extErr instanceof Error ? extErr.message : "Could not change offer status."))
+      }
+
+      // Update Ledger mirror if extension was used
+      const response = await fetch("/api/offers/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operations: [{
+            action: "upsert",
+            offer: {
+              externalOfferId: offer.externalOfferId,
+              title: offer.title,
+              description: offer.description,
+              imageUrl: offer.imageUrl,
+              price: Number(offer.price),
+              rawPrice: Number(offer.rawPrice),
+              categoryId: offer.categoryId,
+              gameId: offer.gameId,
+              status: offer.status,
+              keepInSale: offer.keepInSale,
+              onSale: nextOnSale,
+              syncStatus: "SYNCED",
+            },
+          }],
+        }),
+      })
+      const payload: unknown = await response.json()
+      if (!response.ok) {
+        const message = isRecord(payload) && typeof payload.error === "string"
+          ? payload.error
+          : "The Ledger mirror could not be updated."
+        throw new Error(`Playerok was updated, but the Ledger mirror was not: ${message}`)
+      }
     }
   }
 
@@ -511,7 +542,7 @@ export function OffersPanel() {
             {offers.filter((offer) => !offer.onSale && offer.status !== "DELETED").length} off sale · {archivedCount} archived.
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Detect scans the signed-in Playerok seller products tab. Sale buttons change live Playerok status; other edits remain local.
+            Detect imports offers via the extension. Sale buttons change live Playerok status directly via the server without needing tabs open.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
