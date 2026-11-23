@@ -382,15 +382,27 @@
               statusEl.innerText = `Cookies & query ready for server!`;
               statusEl.style.color = '#10b981';
             } else {
-              statusEl.innerText = `Cookies synced! Open Sales page to link query`;
+              statusEl.innerText = `Cookies synced! Refresh an order/sale page to link query`;
               statusEl.style.color = '#fbbf24';
             }
           }
         });
       }
 
+      function onResponse(e) {
+        if (e.source === window && e.data?.source === 'PLAYEROK_SESSION_DATA_RESPONSE') {
+          window.removeEventListener('message', onResponse);
+          if (e.data.ordersQuery) {
+            cachedOrdersQuery = e.data.ordersQuery;
+            cachedOrdersVariables = e.data.ordersVariables;
+          }
+          proceed();
+        }
+      }
+
+      window.addEventListener('message', onResponse);
       window.postMessage({ source: 'PLAYEROK_REQUEST_SESSION_DATA' }, '*');
-      setTimeout(proceed, 200);
+      setTimeout(proceed, 500);
     };
   }
 

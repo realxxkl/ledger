@@ -260,31 +260,135 @@
     }
   }
 
-  async function captureRequest(input, init) {
-    const request = new Request(input, init);
-    const url = new URL(request.url);
-    let payload;
+  function extractPayloadFromArgs(input, init) {
+    try {
+      if (init && init.body) {
+        if (typeof init.body === 'string') return JSON.parse(init.body);
+      }
+      if (input && typeof input === 'object' && input.body) {
+        if (typeof input.body === 'string') return JSON.parse(input.body);
+      }
+      const urlStr = typeof input === 'string' ? input : (input?.url || '');
+      if (urlStr) {
+        const url = new URL(urlStr, window.location.href);
+        if (url.searchParams.has('query')) {
+          const variables = url.searchParams.get('variables');
+          return {
+            query: url.searchParams.get('query'),
+            operationName: url.searchParams.get('operationName'),
+            variables: variables ? JSON.parse(variables) : {}
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
 
-    if (request.method.toUpperCase() === 'GET') {
-      const variables = url.searchParams.get('variables');
-      payload = {
-        query: url.searchParams.get('query'),
-        operationName: url.searchParams.get('operationName'),
-        variables: variables ? JSON.parse(variables) : {}
+  function checkAndCaptureOrdersQuery(payload) {
+    if (!payload) return;
+    const items = Array.isArray(payload) ? payload : [payload];
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const queryStr = typeof item.query === 'string' ? item.query : '';
+      if (!queryStr) continue;
+
+      const isDealsQuery =
+        /ItemDeal/i.test(queryStr) ||
+        /\bdeals\b/i.test(queryStr) ||
+        /\bdeal\s*\(/i.test(queryStr) ||
+        /getProfileSales/i.test(queryStr) ||
+        /direction\s*:\s*OUT/i.test(queryStr) ||
+        item.operationName === 'getProfileSales' ||
+        item.operationName === 'profileSales' ||
+        item.operationName === 'getDeals' ||
+        item.operationName === 'getDeal';
+
+      if (isDealsQuery) {
+        const queryData = JSON.stringify({
+          query: item.query,
+          variables: item.variables || {},
+          operationName: item.operationName || null
+        });
+        try {
+          sessionStorage.setItem('__pk_orders_query__', queryData);
+          localStorage.setItem('__pk_orders_query__', queryData);
+          window.__PLAYEROK_ORDERS_QUERY__ = item.query;
+          window.__PLAYEROK_ORDERS_VARIABLES__ = item.variables || {};
+        } catch (_) {}
+      }
+    }
+  }
+
+  function scanApolloClientForOrdersQuery() {
+    try {
+      const client = window.__APOLLO_CLIENT__;
+      if (!client) return null;
+      const queries = client.queryManager?.queries;
+      if (queries) {
+        const list = queries.values ? Array.from(queries.values()) : (Array.isArray(queries) ? queries : []);
+        for (const q of list) {
+          const doc = q?.document;
+          const queryStr = doc?.loc?.source?.body || '';
+          if (queryStr && (/ItemDeal/i.test(queryStr) || /\bdeals\b/i.test(queryStr) || /\bdeal\b/i.test(queryStr))) {
+            const data = {
+              query: queryStr,
+              variables: q.variables || {},
+              operationName: doc?.definitions?.[0]?.name?.value || null
+            };
+            const serialized = JSON.stringify(data);
+            try {
+              sessionStorage.setItem('__pk_orders_query__', serialized);
+              localStorage.setItem('__pk_orders_query__', serialized);
+            } catch (_) {}
+            return data;
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function captureRequest(input, init) {
+    const payload = extractPayloadFromArgs(input, init);
+    const urlStr = typeof input === 'string' ? input : (input?.url || window.location.href);
+    const url = new URL(urlStr, window.location.href);
+
+    if (payload) {
+      checkAndCaptureOrdersQuery(payload);
+      return {
+        url: url.href,
+        method: init?.method?.toUpperCase?.() || 'POST',
+        headers: init?.headers ? (init.headers instanceof Headers ? Array.from(init.headers.entries()) : Object.entries(init.headers)) : [],
+        credentials: init?.credentials || 'include',
+        payload
       };
-    } else {
-      const body = await request.clone().text();
-      payload = body ? JSON.parse(body) : null;
     }
 
-    if (!payload) return null;
-    return {
-      url: url.href,
-      method: request.method.toUpperCase(),
-      headers: Array.from(request.headers.entries()),
-      credentials: request.credentials,
-      payload
-    };
+    try {
+      const request = new Request(input, init);
+      let p = null;
+      if (request.method.toUpperCase() === 'GET') {
+        const variables = url.searchParams.get('variables');
+        p = {
+          query: url.searchParams.get('query'),
+          operationName: url.searchParams.get('operationName'),
+          variables: variables ? JSON.parse(variables) : {}
+        };
+      } else {
+        const body = await request.clone().text();
+        p = body ? JSON.parse(body) : null;
+      }
+      if (p) checkAndCaptureOrdersQuery(p);
+      return {
+        url: url.href,
+        method: request.method.toUpperCase(),
+        headers: Array.from(request.headers.entries()),
+        credentials: request.credentials,
+        payload: p
+      };
+    } catch {
+      return null;
+    }
   }
 
   function findOrderConnection(value) {
@@ -1194,14 +1298,16 @@
     const deals = extractDealsAndChats(data?.data ?? data);
     emitDeals(deals);
 
-    if (deals.length === 0 || !request) return;
+    if (!request) return;
     const responseItems = Array.isArray(data) ? data : [data];
     const requestItems = Array.isArray(request.payload) ? request.payload : [request.payload];
 
     responseItems.forEach((responseItem, index) => {
       const requestPayload = requestItems[index];
-      const itemDeals = extractDealsAndChats(responseItem?.data ?? responseItem);
-      if (itemDeals.length === 0 || !requestPayload || Array.isArray(requestPayload)) return;
+      if (!requestPayload || Array.isArray(requestPayload)) return;
+
+      // Always capture query if deals or orders related
+      checkAndCaptureOrdersQuery(requestPayload);
 
       const connection = findOrderConnection(responseItem?.data ?? responseItem);
       const cursorVariable = getCursorVariable(requestPayload);
@@ -1217,7 +1323,7 @@
           request: requestForPage,
           connection,
           cursorVariable,
-          initialOrderCount: itemDeals.length
+          initialOrderCount: (deals || []).length
         };
         try {
           if (requestPayload.query) {
@@ -1609,12 +1715,17 @@
     const urlStr = getRequestUrl(input);
 
     if (isGraphqlRequest(input)) {
+      const synchronousPayload = extractPayloadFromArgs(input, init);
+      if (synchronousPayload) {
+        checkAndCaptureOrdersQuery(synchronousPayload);
+      }
       const requestPromise = captureRequest(input, init).catch(() => null);
       return originalFetch.apply(this, args).then((response) => {
         Promise.all([requestPromise, response.clone().json()])
           .then(([request, data]) => {
-            observeOrdersResponse(data, request);
-            observeItemsResponse(data, request);
+            const actualRequest = request || (synchronousPayload ? { url: urlStr, method: 'POST', payload: synchronousPayload } : null);
+            observeOrdersResponse(data, actualRequest);
+            observeItemsResponse(data, actualRequest);
             scanUnknownPayloadForOffers(data);
           })
           .catch(() => {});
@@ -1807,9 +1918,12 @@
       let queryPayload = firstOrdersQuery?.request?.payload || null;
       if (!queryPayload) {
         try {
-          const saved = sessionStorage.getItem('__pk_orders_query__') || localStorage.getItem('__pk_orders_query__');
+          const saved = localStorage.getItem('__pk_orders_query__') || sessionStorage.getItem('__pk_orders_query__');
           if (saved) queryPayload = JSON.parse(saved);
         } catch (_) {}
+      }
+      if (!queryPayload) {
+        queryPayload = scanApolloClientForOrdersQuery();
       }
       window.postMessage({
         source: 'PLAYEROK_SESSION_DATA_RESPONSE',
