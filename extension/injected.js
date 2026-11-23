@@ -728,7 +728,21 @@
     return null;
   }
 
+  function isSellerProfilePage() {
+    const path = window.location.pathname.toLowerCase();
+    if (path.includes('/deal/') || path.includes('/chats') || path.includes('/order') || path.includes('/item/')) {
+      return false;
+    }
+    const hasSellerTabs = Array.from(document.querySelectorAll('button, a, div[role="tab"], span')).some((el) => {
+      const t = el.textContent?.trim()?.toLowerCase();
+      return t === 'мои товары' || t === 'активные' || t === 'завершённые';
+    });
+    return hasSellerTabs || path.startsWith('/profile');
+  }
+
   function scrapeOffersFromDom() {
+    if (!isSellerProfilePage()) return [];
+
     const scraped = [];
     const seenIds = new Set();
 
@@ -1060,7 +1074,15 @@
 
   async function detectPlayerokOffers() {
     if (offersSyncing) return { error: 'An offer scan is already running.' };
+
+    if (!isSellerProfilePage()) {
+      return {
+        error: 'Offers can only be scanned on your seller profile page (Мои товары), not on a deal or chat page.'
+      };
+    }
+
     offersSyncing = true;
+    discoveredOffersMap.clear();
     try {
       scanNextRscStream();
 

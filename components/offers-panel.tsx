@@ -260,7 +260,7 @@ export function OffersPanel() {
 
   async function archiveOffer(offer: Offer) {
     if (busyOfferId) return
-    if (!window.confirm(`Archive "${offer.title}" from the local inventory?`)) return
+    if (!window.confirm(`Delete "${offer.title}" from local offers?`)) return
 
     setBusyOfferId(offer.externalOfferId)
     setError("")
@@ -277,13 +277,13 @@ export function OffersPanel() {
       if (!response.ok) {
         const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
           ? payload.error
-          : "Offer could not be archived."
+          : "Offer could not be deleted."
         throw new Error(message)
       }
-      setNotice("Offer archived in the local inventory. Playerok was not changed.")
+      setNotice("Offer deleted from local offers.")
       await loadOffers()
     } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : "Offer could not be archived.")
+      setError(archiveError instanceof Error ? archiveError.message : "Offer could not be deleted.")
     } finally {
       setBusyOfferId(null)
     }
@@ -733,7 +733,7 @@ export function OffersPanel() {
                       {busy
                         ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                         : <Archive className="size-3.5" aria-hidden="true" />}
-                      Archive
+                      Delete
                     </button>
                   )}
                 </div>

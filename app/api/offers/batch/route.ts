@@ -389,13 +389,9 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const removed = await tx.update(offers).set({
-          status: "DELETED",
-          keepInSale: false,
-          syncStatus: "SYNCED",
-          lastSyncedAt: appliedAt,
-          updatedAt: appliedAt,
-        }).where(eq(offers.externalOfferId, operation.externalOfferId)).returning({ id: offers.id })
+        const removed = await tx.delete(offers)
+          .where(eq(offers.externalOfferId, operation.externalOfferId))
+          .returning({ id: offers.id })
 
         batchResults.push({
           action: "remove",
