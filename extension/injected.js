@@ -721,116 +721,127 @@
     return null;
   }
 
-  function scrapeOffersFromDom() {
-    const scraped = [];
-    const seenIds = new Set();
-
-    // 1. Collect all UUIDs present on the page HTML
-    const allHtml = document.documentElement.innerHTML;
-    const pageUuids = Array.from(allHtml.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi), (m) => m[0].toLowerCase());
-    const uniqueUuids = Array.from(new Set(pageUuids));
-
-    // 2. Check tab status on profile
-    let pageTabStatus = 'APPROVED';
-    let pageOnSale = true;
-    const subtabs = Array.from(document.querySelectorAll('button, a, div[role="tab"]'));
-    for (const tab of subtabs) {
-      const txt = tab.textContent.trim().toLowerCase();
-      const isActive = tab.getAttribute('aria-selected') === 'true' ||
-        tab.className.toLowerCase().includes('active') ||
-        tab.className.toLowerCase().includes('selected');
-      if (isActive && (txt.includes('заверш') || txt.includes('архив') || txt.includes('неактив'))) {
-        pageTabStatus = 'PAUSED';
-        pageOnSale = false;
-        break;
+  // Fetch only the signed-in user's own items directly via GraphQL (all statuses).
+  async function fetchOwnOffersViaGql() {
+    // 1. Find current user's own ID from Apollo cache (isMe: true)
+    let myUserId = null;
+    const apolloCache = window.__APOLLO_CLIENT__?.cache?.extract?.() || {};
+    for (const [, node] of Object.entries(apolloCache)) {
+      if (node && typeof node === 'object' && node.__typename === 'User' && node.isMe === true) {
+        const uid = node.id || node.userId;
+        if (uid) { myUserId = String(uid); break; }
       }
     }
-
-    // 3. Find candidate product cards
-    const cardLinks = Array.from(document.querySelectorAll('a[href*="/products/"], a[href*="/item/"]'));
-    for (const link of cardLinks) {
-      const href = link.getAttribute('href') || link.href || '';
-      const match = href.match(/\/(?:products|item)\/([0-9a-zA-Z-]+)/);
-      if (!match) continue;
-
-      const slug = match[1];
-      const slugIdPart = slug.split('-')[0].toLowerCase();
-
-      // Attempt matching short ID or slug to full UUIDs from page
-      let resolvedId = uniqueUuids.find((u) => u === slugIdPart || u.endsWith(slugIdPart)) || slugIdPart;
-
-      let fiberItem = extractItemFromFiber(link);
-      if (fiberItem && fiberItem.id) {
-        resolvedId = String(fiberItem.id);
-      }
-
-      if (!resolvedId || seenIds.has(resolvedId)) continue;
-      seenIds.add(resolvedId);
-
-      let title = fiberItem?.name || fiberItem?.title;
-      let price = fiberItem?.price;
-      let imageUrl = fiberItem?.imageUrl || fiberItem?.image;
-
-      const cardContainer = link.closest('[class*="card"], [class*="item"], div') || link;
-
-      if (!title) {
-        const textNodes = [];
-        const walker = document.createTreeWalker(cardContainer, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const t = walker.currentNode.textContent.trim();
-          if (t && !t.includes('₽') && !t.includes('дн.') && !t.includes('ч.') && isNaN(Number(t))) {
-            textNodes.push(t);
+    // Fallback: __NEXT_DATA__ currentUser
+    if (!myUserId) {
+      const nd = window.__NEXT_DATA__?.props?.pageProps;
+      myUserId = nd?.currentUser?.id || nd?.user?.id || nd?.me?.id || null;
+      if (myUserId) myUserId = String(myUserId);
+    }
+    // Fallback: scan Apollo cache for User nodes that have a username matching the page URL
+    if (!myUserId) {
+      const urlUsername = window.location.pathname.match(/^\/([^/]+)/)?.[1];
+      if (urlUsername) {
+        for (const [, node] of Object.entries(apolloCache)) {
+          if (node && typeof node === 'object' && node.__typename === 'User') {
+            if ((node.username || '').toLowerCase() === urlUsername.toLowerCase() && node.id) {
+              myUserId = String(node.id);
+              break;
+            }
           }
         }
-        title = textNodes.find((t) => t.length > 5) || textNodes[0] || slug;
       }
-
-      if (price === undefined || isNaN(Number(price))) {
-        const priceEl = Array.from(cardContainer.querySelectorAll('*')).find((el) => {
-          return el.children.length === 0 && el.textContent.includes('₽');
-        });
-        if (priceEl) {
-          const raw = priceEl.textContent.replace(/[^\d]/g, '');
-          price = raw ? Number(raw) : 0;
-        } else {
-          price = 0;
-        }
-      } else {
-        price = Number(price);
-      }
-
-      if (!imageUrl) {
-        const img = cardContainer.querySelector('img');
-        if (img) imageUrl = img.src || img.getAttribute('src');
-      }
-
-      let parsedImageUrl = null;
-      if (typeof imageUrl === 'string') {
-        try {
-          const u = new URL(imageUrl, window.location.origin);
-          if (u.protocol === 'https:') parsedImageUrl = u.href;
-        } catch {}
-      }
-
-      const offer = {
-        externalOfferId: String(resolvedId),
-        title: String(title).trim(),
-        description: fiberItem?.description || null,
-        imageUrl: parsedImageUrl,
-        price: Number.isFinite(price) && price >= 0 ? price : 0,
-        rawPrice: Number.isFinite(price) && price >= 0 ? price : 0,
-        categoryId: String(fiberItem?.categoryId || 'default'),
-        gameId: String(fiberItem?.gameId || 'default'),
-        status: fiberItem?.status || pageTabStatus,
-        keepInSale: fiberItem?.keepInSale ?? pageOnSale,
-        onSale: fiberItem?.onSale ?? pageOnSale
-      };
-
-      scraped.push(offer);
-      discoveredOffersMap.set(offer.externalOfferId, offer);
+    }
+    if (!myUserId) {
+      console.warn('[Playerok Bridge] fetchOwnOffersViaGql: could not determine own user ID');
+      return [];
     }
 
-    return scraped;
+    // 2. Query Playerok GraphQL for all items by this user (no status filter = all statuses)
+    const graphqlUrl = window.location.origin + '/graphql';
+    const query = `query myItems($userId: ID!, $after: String) {
+  items(filter: { userId: $userId }, pagination: { first: 48, after: $after }) {
+    edges {
+      node {
+        id
+        name
+        description
+        status
+        isPublished
+        price { amount }
+        rawPrice { amount }
+        attachment { url }
+        category { id slug }
+        game { id slug }
+      }
+      cursor
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+    const offers = new Map();
+    let after = null;
+    let pages = 0;
+    const maxPages = 20;
+
+    while (pages < maxPages) {
+      let respData;
+      try {
+        const resp = await originalFetch.call(window, graphqlUrl, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'accept': '*/*',
+            'apollographql-client-name': 'web'
+          },
+          credentials: 'include',
+          body: JSON.stringify({ query, variables: { userId: myUserId, after } })
+        });
+        if (!resp.ok) {
+          console.warn('[Playerok Bridge] fetchOwnOffersViaGql: HTTP', resp.status);
+          break;
+        }
+        respData = await resp.json();
+      } catch (err) {
+        console.warn('[Playerok Bridge] fetchOwnOffersViaGql fetch error:', err);
+        break;
+      }
+
+      const connection = respData?.data?.items;
+      if (!connection) {
+        console.warn('[Playerok Bridge] fetchOwnOffersViaGql: unexpected response structure', respData);
+        break;
+      }
+
+      for (const edge of (connection.edges || [])) {
+        const node = edge?.node;
+        if (!node) continue;
+        // Map GraphQL node to flat item shape that mapPlayerokOffer understands
+        const flat = {
+          id: node.id,
+          name: node.name,
+          description: node.description || null,
+          status: node.status,
+          isPublished: node.isPublished,
+          price: node.price?.amount,
+          rawPrice: node.rawPrice?.amount,
+          attachment: node.attachment,
+          categoryId: node.category?.id || node.category?.slug || 'default',
+          gameId: node.game?.id || node.game?.slug || 'default'
+        };
+        const offer = mapPlayerokOffer(flat);
+        if (offer) offers.set(offer.externalOfferId, offer);
+      }
+
+      pages++;
+      if (!connection.pageInfo?.hasNextPage) break;
+      after = connection.pageInfo.endCursor;
+      if (!after) break;
+    }
+
+    console.log(`[Playerok Bridge] fetchOwnOffersViaGql: found ${offers.size} own offer(s) for userId=${myUserId}`);
+    return Array.from(offers.values());
   }
 
   async function scanPaginatedPlayerokOffers() {
@@ -891,8 +902,13 @@
       const cachedOffers = extractAllPlayerokItems();
       for (const off of cachedOffers) discoveredOffersMap.set(off.externalOfferId, off);
 
-      const domOffers = scrapeOffersFromDom();
-      for (const off of domOffers) discoveredOffersMap.set(off.externalOfferId, off);
+      // Try direct GraphQL query for own offers (most reliable, all statuses)
+      try {
+        const ownOffers = await fetchOwnOffersViaGql();
+        for (const off of ownOffers) discoveredOffersMap.set(off.externalOfferId, off);
+      } catch (err) {
+        console.warn('[Playerok Bridge] fetchOwnOffersViaGql failed, falling back to cache:', err);
+      }
 
       if (firstItemsQuery?.connection?.hasNextPage) {
         try {
@@ -909,7 +925,7 @@
 
       if (detectedOffers.length === 0) {
         return {
-          error: 'No listings could be found in the open Playerok tab. Please refresh the Playerok page (F5) and make sure "Мои товары" is loaded.'
+          error: 'No offers found. Open your Playerok seller profile page (Мои товары), wait for it to load, then try again.'
         };
       }
 

@@ -1,8 +1,11 @@
 "use client"
 
-import { FormEvent, useCallback, useEffect, useState } from "react"
-import { Archive, ExternalLink, LoaderCircle, Pencil, Plus, Power, PowerOff, RefreshCw, RotateCcw, Search, X } from "lucide-react"
-import { currency } from "@/lib/types"
+import { useCallback, useEffect, useState } from "react"
+import { Archive, ExternalLink, LoaderCircle, Power, PowerOff, RefreshCw, RotateCcw, Search } from "lucide-react"
+
+function rubPrice(n: number) {
+  return n.toLocaleString("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 0 })
+}
 
 type OfferStatus = "APPROVED" | "PENDING" | "PAUSED" | "DELETED"
 
@@ -22,32 +25,6 @@ type Offer = {
   syncStatus: string
   lastSyncedAt: string | null
   updatedAt: string
-}
-
-type OfferForm = {
-  externalOfferId: string
-  title: string
-  description: string
-  imageUrl: string
-  price: string
-  rawPrice: string
-  categoryId: string
-  gameId: string
-  status: OfferStatus
-  keepInSale: boolean
-}
-
-const EMPTY_FORM: OfferForm = {
-  externalOfferId: "",
-  title: "",
-  description: "",
-  imageUrl: "",
-  price: "",
-  rawPrice: "",
-  categoryId: "",
-  gameId: "",
-  status: "APPROVED",
-  keepInSale: true,
 }
 
 const inputClass =
@@ -164,8 +141,6 @@ function offerStatusTone(status: string) {
 
 export function OffersPanel() {
   const [offers, setOffers] = useState<Offer[]>([])
-  const [form, setForm] = useState<OfferForm>(EMPTY_FORM)
-  const [editingExternalId, setEditingExternalId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [visibility, setVisibility] = useState<"all" | "active" | "archived">("active")
   const [loading, setLoading] = useState(true)
@@ -173,7 +148,6 @@ export function OffersPanel() {
   const [selectedOfferIds, setSelectedOfferIds] = useState<Set<string>>(() => new Set())
   const [bulkSaleStatus, setBulkSaleStatus] = useState<boolean | null>(null)
   const [bulkProgress, setBulkProgress] = useState("")
-  const [saving, setSaving] = useState(false)
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
@@ -253,77 +227,6 @@ export function OffersPanel() {
     })
   }
 
-  function startEdit(offer: Offer) {
-    setEditingExternalId(offer.externalOfferId)
-    setForm({
-      externalOfferId: offer.externalOfferId,
-      title: offer.title,
-      description: offer.description ?? "",
-      imageUrl: offer.imageUrl ?? "",
-      price: offer.price,
-      rawPrice: offer.rawPrice,
-      categoryId: offer.categoryId,
-      gameId: offer.gameId,
-      status: offer.status === "PENDING" || offer.status === "PAUSED" || offer.status === "DELETED"
-        ? offer.status
-        : "APPROVED",
-      keepInSale: offer.keepInSale,
-    })
-    setError("")
-    setNotice("")
-  }
-
-  function resetForm() {
-    setEditingExternalId(null)
-    setForm(EMPTY_FORM)
-    setError("")
-    setNotice("")
-  }
-
-  async function submitForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (saving) return
-    setSaving(true)
-    setError("")
-    setNotice("")
-    try {
-      const response = await fetch("/api/offers/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          operations: [{
-            action: "upsert",
-            offer: {
-              externalOfferId: form.externalOfferId.trim(),
-              title: form.title.trim(),
-              description: form.description || null,
-              imageUrl: form.imageUrl.trim() || null,
-              price: Number(form.price),
-              rawPrice: Number(form.rawPrice),
-              categoryId: form.categoryId.trim(),
-              gameId: form.gameId.trim(),
-              status: form.status,
-              keepInSale: form.status === "DELETED" ? false : form.keepInSale,
-            },
-          }],
-        }),
-      })
-      const payload: unknown = await response.json()
-      if (!response.ok) {
-        const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
-          ? payload.error
-          : "Offer could not be saved."
-        throw new Error(message)
-      }
-      resetForm()
-      setNotice(editingExternalId ? "Offer updated in the local inventory." : "Offer added to the local inventory.")
-      await loadOffers()
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Offer could not be saved.")
-    } finally {
-      setSaving(false)
-    }
-  }
 
   async function archiveOffer(offer: Offer) {
     if (busyOfferId) return
@@ -506,7 +409,7 @@ export function OffersPanel() {
   }
 
   async function changeSelectedPlayerokSaleStatus(nextOnSale: boolean) {
-    if (bulkSaleStatus !== null || busyOfferId !== null || detecting || saving || selectedOffers.length === 0) return
+    if (bulkSaleStatus !== null || busyOfferId !== null || detecting || selectedOffers.length === 0) return
 
     const offersToChange = selectedOffers.filter((offer) => offer.onSale !== nextOnSale)
     if (offersToChange.length === 0) {
@@ -582,7 +485,7 @@ export function OffersPanel() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void detectPlayerokOffers()} disabled={detecting || loading || saving || bulkSaleStatus !== null} className={outlineButton}>
+          <button type="button" onClick={() => void detectPlayerokOffers()} disabled={detecting || loading || bulkSaleStatus !== null} className={outlineButton}>
             {detecting
               ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
               : <RefreshCw className="size-4" aria-hidden="true" />}
@@ -606,156 +509,6 @@ export function OffersPanel() {
         </div>
       </header>
 
-      <form onSubmit={submitForm} className="grid gap-3 border-b-2 border-border p-5 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="sm:col-span-2 lg:col-span-4">
-          <h3 className="text-sm font-bold uppercase tracking-wider">
-            {editingExternalId ? "Edit offer" : "Add offer"}
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            This saves a local mirror only; it does not create or modify a Playerok listing.
-          </p>
-        </div>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground sm:col-span-2">
-          External offer ID
-          <input
-            required
-            maxLength={200}
-            value={form.externalOfferId}
-            onChange={(event) => setForm((current) => ({ ...current, externalOfferId: event.target.value }))}
-            className={`${inputClass} mt-1`}
-            readOnly={Boolean(editingExternalId)}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground sm:col-span-2">
-          Title
-          <input
-            required
-            maxLength={300}
-            value={form.title}
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            className={`${inputClass} mt-1`}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Price
-          <input
-            required
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.price}
-            onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))}
-            className={`${inputClass} mt-1`}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Raw price
-          <input
-            required
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.rawPrice}
-            onChange={(event) => setForm((current) => ({ ...current, rawPrice: event.target.value }))}
-            className={`${inputClass} mt-1`}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Category ID
-          <input
-            required
-            maxLength={200}
-            value={form.categoryId}
-            onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}
-            className={`${inputClass} mt-1`}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Game ID
-          <input
-            required
-            maxLength={200}
-            value={form.gameId}
-            onChange={(event) => setForm((current) => ({ ...current, gameId: event.target.value }))}
-            className={`${inputClass} mt-1`}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Listing status
-          <select
-            value={form.status}
-            onChange={(event) => setForm((current) => ({
-              ...current,
-              status: event.target.value as OfferStatus,
-              keepInSale: event.target.value === "DELETED" ? false : current.keepInSale,
-            }))}
-            className={`${inputClass} mt-1`}
-          >
-            <option value="APPROVED">Approved</option>
-            <option value="PENDING">Pending</option>
-            <option value="PAUSED">Paused</option>
-            <option value="DELETED">Deleted</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-2 self-end pb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={form.keepInSale}
-            disabled={form.status === "DELETED"}
-            onChange={(event) => setForm((current) => ({ ...current, keepInSale: event.target.checked }))}
-          />
-          Keep in sale
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground sm:col-span-2 lg:col-span-4">
-          Description
-          <textarea
-            maxLength={10000}
-            rows={2}
-            value={form.description}
-            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            className={`${inputClass} mt-1`}
-          />
-        </label>
-        <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground sm:col-span-2 lg:col-span-4">
-          Image URL (HTTPS)
-          <input
-            type="url"
-            maxLength={2048}
-            value={form.imageUrl}
-            onChange={(event) => setForm((current) => ({ ...current, imageUrl: event.target.value }))}
-            placeholder="https://example.com/offer-image.jpg"
-            className={`${inputClass} mt-1`}
-          />
-          <span className="mt-1 block normal-case tracking-normal">
-            Used for the local preview. Live Playerok listings still require a file uploaded through Playerok.
-          </span>
-        </label>
-        {form.imageUrl.trim().startsWith("https://") && (
-          <div className="sm:col-span-2 lg:col-span-4">
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Preview</p>
-            <img
-              src={form.imageUrl.trim()}
-              alt="Offer image preview"
-              referrerPolicy="no-referrer"
-              className="max-h-40 max-w-full border-2 border-border object-contain"
-            />
-          </div>
-        )}
-        <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
-          <button type="submit" disabled={saving || bulkSaleStatus !== null} className={primaryButton}>
-            {saving
-              ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              : <Plus className="size-4" aria-hidden="true" />}
-            {saving ? "Saving…" : editingExternalId ? "Save changes" : "Add to inventory"}
-          </button>
-          {editingExternalId && (
-            <button type="button" onClick={resetForm} disabled={saving} className={outlineButton}>
-              <X className="size-4" aria-hidden="true" />
-              Cancel edit
-            </button>
-          )}
-        </div>
-      </form>
 
       {error && <p role="alert" className="border-b-2 border-border px-5 py-3 text-sm font-bold text-negative">{error}</p>}
       {notice && <p role="status" className="border-b-2 border-border px-5 py-3 text-sm font-bold text-primary">{notice}</p>}
@@ -816,7 +569,7 @@ export function OffersPanel() {
             <button
               type="button"
               onClick={() => void changeSelectedPlayerokSaleStatus(true)}
-              disabled={selectedOffers.length === 0 || busyOfferId !== null || detecting || saving || bulkSaleStatus !== null}
+              disabled={selectedOffers.length === 0 || busyOfferId !== null || detecting || bulkSaleStatus !== null}
               className={outlineButton}
             >
               <Power className="size-3.5" aria-hidden="true" />
@@ -825,7 +578,7 @@ export function OffersPanel() {
             <button
               type="button"
               onClick={() => void changeSelectedPlayerokSaleStatus(false)}
-              disabled={selectedOffers.length === 0 || busyOfferId !== null || detecting || saving || bulkSaleStatus !== null}
+              disabled={selectedOffers.length === 0 || busyOfferId !== null || detecting || bulkSaleStatus !== null}
               className={`${outlineButton} hover:border-negative hover:text-negative`}
             >
               <PowerOff className="size-3.5" aria-hidden="true" />
@@ -851,7 +604,7 @@ export function OffersPanel() {
             {search ? "No matching offers" : visibility === "archived" ? "No archived offers" : "No offers yet"}
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            Add an offer above or sync local mirror data through the batch API.
+            Sync offers via the Detect button above or the batch API.
           </p>
         </div>
       ) : (
@@ -888,7 +641,7 @@ export function OffersPanel() {
                       <span className={`border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${offerStatusTone(offer.status)}`}>
                         {offer.status}
                       </span>
-                      <span className="border border-border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <span className={`border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${offer.onSale ? "border-border text-muted-foreground" : "border-red-500/50 bg-red-500/10 text-red-400"}`}>
                         {offer.onSale ? "On sale" : "Off sale"}
                       </span>
                       {offer.keepInSale && (
@@ -899,8 +652,8 @@ export function OffersPanel() {
                     </div>
                     <p className="mt-1 break-all text-xs text-muted-foreground">ID: {offer.externalOfferId}</p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Price {currency(Number(offer.price))}</span>
-                      <span>Raw {currency(Number(offer.rawPrice))}</span>
+                      <span>Price {rubPrice(Number(offer.price))}</span>
+                      <span>Raw {rubPrice(Number(offer.rawPrice))}</span>
                       <span>Category {offer.categoryId}</span>
                       <span>Game {offer.gameId}</span>
                       <span>Mirror {offer.syncStatus}</span>
@@ -913,7 +666,7 @@ export function OffersPanel() {
                     <button
                       type="button"
                       onClick={() => void changePlayerokSaleStatus(offer)}
-                      disabled={busyOfferId !== null || detecting || saving || bulkSaleStatus !== null}
+                      disabled={busyOfferId !== null || detecting || bulkSaleStatus !== null}
                       className={`${outlineButton} ${offer.onSale ? "hover:border-negative hover:text-negative" : ""}`}
                     >
                       {busy
@@ -924,19 +677,15 @@ export function OffersPanel() {
                       {offer.onSale ? "Take off sale" : "Put on sale"}
                     </button>
                   )}
-                  <button type="button" onClick={() => startEdit(offer)} disabled={busyOfferId !== null || saving || bulkSaleStatus !== null} className={outlineButton}>
-                    <Pencil className="size-3.5" aria-hidden="true" />
-                    Edit
-                  </button>
                   {archived ? (
-                    <button type="button" onClick={() => void restoreOffer(offer)} disabled={busyOfferId !== null || saving || bulkSaleStatus !== null} className={outlineButton}>
+                    <button type="button" onClick={() => void restoreOffer(offer)} disabled={busyOfferId !== null || bulkSaleStatus !== null} className={outlineButton}>
                       {busy
                         ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                         : <RotateCcw className="size-3.5" aria-hidden="true" />}
                       Restore
                     </button>
                   ) : (
-                    <button type="button" onClick={() => void archiveOffer(offer)} disabled={busyOfferId !== null || saving || bulkSaleStatus !== null} className={`${outlineButton} hover:border-negative hover:text-negative`}>
+                    <button type="button" onClick={() => void archiveOffer(offer)} disabled={busyOfferId !== null || bulkSaleStatus !== null} className={`${outlineButton} hover:border-negative hover:text-negative`}>
                       {busy
                         ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                         : <Archive className="size-3.5" aria-hidden="true" />}
