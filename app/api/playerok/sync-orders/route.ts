@@ -86,6 +86,11 @@ const DEFAULT_DEALS_QUERY = `
   }
 `
 
+function extractOperationName(queryStr: string): string | null {
+  const match = queryStr.match(/\b(?:query|mutation)\s+([A-Za-z0-9_]+)/i)
+  return match ? match[1] : null
+}
+
 function deduplicateGraphQLFragments(queryStr: string): string {
   let inString = false
   let stringChar = ""
@@ -200,20 +205,28 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
+    const operationName = extractOperationName(cleanQuery)
+    const requestHeaders: Record<string, string> = {
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "Cookie": cookieString,
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      "Origin": "https://playerok.com",
+      "Referer": "https://playerok.com/",
+      "apollo-require-preflight": "true",
+      "apollographql-client-name": "web",
+      "x-timezone-offset": String(new Date().getTimezoneOffset()),
+    }
+    if (operationName) {
+      requestHeaders["x-gql-op"] = operationName
+    }
+
     const graphqlUrl = "https://playerok.com/graphql"
     const response = await fetch(graphqlUrl, {
       method: "POST",
-      headers: {
-        "Accept": "*/*",
-        "Content-Type": "application/json",
-        "Cookie": cookieString,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        "Origin": "https://playerok.com",
-        "Referer": "https://playerok.com/",
-        "apollo-require-preflight": "true",
-        "apollographql-client-name": "web",
-      },
+      headers: requestHeaders,
       body: JSON.stringify({
+        ...(operationName ? { operationName } : {}),
         query: cleanQuery,
         variables: parsedVariables,
       }),
