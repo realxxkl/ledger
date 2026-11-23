@@ -22,10 +22,13 @@
     if (!chatId) return;
     const cleanChatId = String(chatId).trim();
     if (dealId && username) {
-      dealChatMap.set(String(dealId).trim(), {
+      const entry = {
         chatId: cleanChatId,
         buyerUsername: String(username || '').trim()
-      });
+      };
+      const rawId = String(dealId).trim();
+      dealChatMap.set(rawId, entry);
+      dealChatMap.set(rawId.toLowerCase(), entry);
     }
     if (username) {
       const norm = normalizeUsername(username);
@@ -1316,9 +1319,12 @@
   // --- DIRECT GRAPHQL MESSAGE MUTATION ---
   async function sendPlayerokMessageViaGql(chatId, messageText) {
     const graphqlUrl = window.location.origin + '/graphql';
+    const cleanChatId = String(chatId).trim();
+
+    // Clean mutation without $file: Upload scalar which breaks standard JSON serialization
     const mutation = `
-      mutation createChatMessage($input: CreateChatMessageInput!, $file: Upload, $showForbiddenImage: Boolean) {
-        createChatMessage(input: $input, file: $file) {
+      mutation createChatMessage($input: CreateChatMessageInput!) {
+        createChatMessage(input: $input) {
           id
           text
           createdAt
@@ -1327,43 +1333,62 @@
       }
     `;
 
+    const headers = {
+      'accept': '*/*',
+      'apollo-require-preflight': 'true',
+      'apollographql-client-name': 'web',
+      'content-type': 'application/json',
+      'x-gql-op': 'createChatMessage',
+      'x-gql-path': `/chats/${encodeURIComponent(cleanChatId)}`,
+      'x-timezone-offset': String(new Date().getTimezoneOffset())
+    };
+
+    const bodyPayload = {
+      operationName: 'createChatMessage',
+      variables: {
+        input: {
+          chatId: cleanChatId,
+          text: messageText
+        }
+      },
+      query: mutation
+    };
+
     try {
+      console.log(`[Playerok Bridge] Sending message to chatId=${cleanChatId}...`);
       const response = await originalFetch.call(window, graphqlUrl, {
         method: 'POST',
-        headers: {
-          'accept': '*/*',
-          'apollo-require-preflight': 'true',
-          'apollographql-client-name': 'web',
-          'content-type': 'application/json',
-          'x-gql-op': 'createChatMessage',
-          'x-gql-path': '/chats/[id]',
-          'x-timezone-offset': String(new Date().getTimezoneOffset())
-        },
+        headers,
         credentials: 'include',
-        body: JSON.stringify({
-          operationName: 'createChatMessage',
-          variables: {
-            input: {
-              chatId: chatId,
-              imagesIds: [],
-              text: messageText
-            }
-          },
-          query: mutation
-        })
+        body: JSON.stringify(bodyPayload)
       });
 
       if (!response.ok) {
+        let errDetail = `HTTP ${response.status}`;
+        try {
+          const rawText = await response.text();
+          console.error('[Playerok Bridge] sendPlayerokMessageViaGql HTTP error raw:', response.status, rawText);
+          try {
+            const parsed = JSON.parse(rawText);
+            if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) {
+              errDetail = parsed.errors.map((e) => e.message).join('; ');
+            } else if (parsed?.message) {
+              errDetail = parsed.message;
+            }
+          } catch {}
+        } catch {}
+
         return {
           success: false,
           uncertain: response.status >= 500,
-          error: `HTTP ${response.status}`
+          error: errDetail
         };
       }
 
       const result = await response.json();
       if (result.errors && result.errors.length > 0) {
         const msg = result.errors.map((e) => e.message).join('; ');
+        console.error('[Playerok Bridge] sendPlayerokMessageViaGql GraphQL error:', msg);
         return {
           success: false,
           uncertain: true,
@@ -1380,8 +1405,10 @@
         };
       }
 
+      console.log(`[Playerok Bridge] Message sent successfully (id=${created.id})`);
       return { success: true, data: created };
     } catch (error) {
+      console.error('[Playerok Bridge] sendPlayerokMessageViaGql exception:', error);
       return {
         success: false,
         uncertain: true,
@@ -1405,7 +1432,8 @@
     for (const recipient of recipients) {
       const { buyerUsername, orderId } = recipient;
       const norm = normalizeUsername(buyerUsername);
-      const dealMapping = dealChatMap.get(String(orderId).trim());
+      const cleanOrderId = String(orderId || '').trim();
+      const dealMapping = dealChatMap.get(cleanOrderId) || dealChatMap.get(cleanOrderId.toLowerCase());
       let chatId = null;
 
       if (dealMapping) {
