@@ -30,6 +30,14 @@
   });
 
   window.addEventListener('message', (event) => {
+    if (event.source !== window || event.data?.source !== 'PLAYEROK_CHATS_SYNC') return;
+    chrome.runtime.sendMessage({
+      type: 'SYNC_CHATS_TO_LEDGER',
+      mappings: event.data.mappings
+    });
+  });
+
+  window.addEventListener('message', (event) => {
     if (event.source !== window || event.data?.source !== 'PLAYEROK_SYNC_COMPLETE') return;
     const result = event.data.payload || {};
     const statusEl = document.getElementById('pk-sync-status');

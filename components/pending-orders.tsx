@@ -32,6 +32,7 @@ const MESSAGE_STATUS_LABEL: Record<PlayerokMessageResult["status"], string> = {
 type PlayerokMessageRecipient = {
   buyerUsername: string
   orderId: string
+  chatId?: string
 }
 
 function isBuyerPresenceResult(value: unknown): value is BuyerPresenceResult {
@@ -388,7 +389,7 @@ export function PendingOrders({
     const buyerKey = normalizeBuyerUsername(buyerUsername)
     if (selectedMessageBuyerKeys.has(buyerKey)) continue
     selectedMessageBuyerKeys.add(buyerKey)
-    selectedMessageRecipients.push({ buyerUsername, orderId })
+    selectedMessageRecipients.push({ buyerUsername, orderId, chatId: order.chatId })
   }
   const allPresenceOrdersSelected =
     presenceCheckableOrders.length > 0 &&

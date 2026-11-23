@@ -47,6 +47,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
+  if (message?.type === 'SYNC_CHATS_TO_LEDGER') {
+    syncChatsToLedger(message.mappings)
+      .then(sendResponse)
+      .catch((err) => {
+        console.error('[Playerok Bridge] Could not sync chat mappings to Ledger:', err);
+        sendResponse({ error: err.message || 'Failed to sync chat mappings to Ledger.' });
+      });
+    return true;
+  }
   if (message?.type === 'LEDGER_PLAYEROK_OFFERS_ACTION') {
     if (!isLedgerSender(sender)) {
       sendResponse({ error: 'Offer requests are only accepted from the Ledger app.' });
@@ -359,3 +368,28 @@ async function syncPlayerokCookiesToLedger() {
     return { error: err.message || 'Failed to sync cookies to Ledger.' };
   }
 }
+
+async function syncChatsToLedger(mappings) {
+  if (!Array.isArray(mappings) || mappings.length === 0) return { updated: 0 };
+  const ledgerTabs = await chrome.tabs.query({
+    url: ['http://localhost/*', 'http://127.0.0.1/*', 'https://ledger-one-gules.vercel.app/*']
+  });
+  const baseUrl = ledgerTabs[0]?.url ? new URL(ledgerTabs[0].url).origin : 'https://ledger-one-gules.vercel.app';
+  const targetUrl = `${baseUrl}/api/playerok/chats`;
+
+  const response = await fetch(targetUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-secret': WEBHOOK_SECRET
+    },
+    body: JSON.stringify({ mappings })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ledger error (HTTP ${response.status}): ${errorText.slice(0, 200)}`);
+  }
+  return await response.json();
+}
+

@@ -15,6 +15,7 @@ export type Entry = {
   externalOrderId?: string
   source?: string
   buyerUsername?: string
+  chatId?: string
   waitingSince?: string
   vbucksBefore?: number
   vbucksAfter?: number

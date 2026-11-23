@@ -62,8 +62,12 @@
     const transaction = resolveNode(deal.transaction, cache);
     const chat = resolveNode(deal.chat, cache);
 
-    const chatId = chat?.id || deal.chatId || null;
     const buyerUsername = user?.username || null;
+    const cleanDealId = String(deal.id || '').trim().toLowerCase();
+    const normUser = buyerUsername ? normalizeUsername(buyerUsername) : null;
+    const mappedFromDeal = dealChatMap.get(cleanDealId)?.chatId;
+    const mappedFromBuyer = normUser ? Array.from(buyerChatMap.get(normUser) || [])[0] : null;
+    const chatId = chat?.id || deal.chatId || mappedFromDeal || mappedFromBuyer || null;
 
     if (chatId) {
       recordChatMapping(buyerUsername, chatId, deal.id);
@@ -1676,16 +1680,67 @@
   };
   window.WebSocket.prototype = OriginalWebSocket.prototype;
 
+  function scrapeChatsFromDom() {
+    const chatLinks = Array.from(document.querySelectorAll('a[href*="/chats/"]'));
+    for (const link of chatLinks) {
+      const href = link.getAttribute('href') || link.href || '';
+      const match = href.match(/\/chats\/([0-9a-zA-Z-]+)/);
+      if (!match) continue;
+      const slug = match[1];
+      const chatId = slug.split('-')[0];
+      if (!/^[0-9a-zA-Z-]{8,64}$/.test(chatId)) continue;
+
+      const textNodes = [];
+      const walker = document.createTreeWalker(link, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const t = walker.currentNode.textContent.trim();
+        if (t && t.length >= 2 && !t.includes(':') && !t.includes('₽') && isNaN(Number(t))) {
+          textNodes.push(t);
+        }
+      }
+      const username = textNodes[0];
+      if (username) {
+        recordChatMapping(username, chatId);
+      }
+    }
+  }
+
+  function getExportableChatMappings() {
+    scrapeChatsFromDom();
+    const mappings = [];
+    for (const [normUser, chatSet] of buyerChatMap.entries()) {
+      for (const chatId of chatSet) {
+        mappings.push({ buyerUsername: normUser, chatId });
+      }
+    }
+    for (const [dealId, info] of dealChatMap.entries()) {
+      mappings.push({ dealId, chatId: info.chatId, buyerUsername: info.buyerUsername });
+    }
+    return mappings;
+  }
+
+  function emitChatMappings() {
+    const mappings = getExportableChatMappings();
+    if (mappings.length > 0) {
+      window.postMessage({
+        source: 'PLAYEROK_CHATS_SYNC',
+        mappings
+      }, '*');
+    }
+  }
+
   window.addEventListener('load', () => {
     setTimeout(() => {
       extractFromApolloCache(false);
       extractRefundedDealsFromPage(false);
       observeRefundedOrdersPage();
+      emitChatMappings();
     }, 800);
   }, { once: true });
 
   window.addEventListener('message', (event) => {
     if (event.source === window && event.data?.source === 'PLAYEROK_FORCE_SYNC') {
+      emitChatMappings();
       const orderCount = extractFromApolloCache(true);
       const refundedOrderCount = extractRefundedDealsFromPage(true);
       if (isRefundedOrdersPage()) {

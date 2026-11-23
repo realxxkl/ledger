@@ -52,6 +52,7 @@ export async function getLedger() {
       externalOrderId: e.externalOrderId || undefined,
       source: e.source || undefined,
       buyerUsername: e.buyerUsername || undefined,
+      chatId: e.chatId || undefined,
       waitingSince: e.waitingSince || undefined,
       vbucksBefore: e.vbucksBefore ?? undefined,
       vbucksAfter: e.vbucksAfter ?? undefined,
