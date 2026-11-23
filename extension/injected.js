@@ -14,6 +14,17 @@
   const buyerChatMap = new Map();
   const dealChatMap = new Map();
 
+  try {
+    const saved = localStorage.getItem('__pk_orders_query__');
+    if (saved) {
+      const p = JSON.parse(saved);
+      if (p.operationName === 'user' || (p.query && /^\s*query\s+user\b/i.test(p.query))) {
+        localStorage.removeItem('__pk_orders_query__');
+        sessionStorage.removeItem('__pk_orders_query__');
+      }
+    }
+  } catch (_) {}
+
   function normalizeUsername(value) {
     return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
   }

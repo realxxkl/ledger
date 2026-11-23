@@ -187,10 +187,11 @@ export async function POST(request: NextRequest) {
 
     // 2. Fetch orders from Playerok GraphQL
     const query = sessionRows[0]?.ordersQuery
-    if (!query) {
+    const op = query ? extractOperationName(query) : null
+    if (!query || op === "user" || /^\s*query\s+user\b/i.test(query)) {
       return NextResponse.json(
         {
-          error: "Order query schema not saved yet. Please open your Playerok Sales page (Мои продажи) in Chrome, then click [Sync Cookies] in the extension widget.",
+          error: "Orders query schema not linked yet. Please reload the extension in Chrome, click [Sync Cookies] on your Sales page, then retry.",
         },
         { status: 400 }
       )

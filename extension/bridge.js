@@ -357,13 +357,25 @@
 
         let query = cachedOrdersQuery;
         let vars = cachedOrdersVariables;
+
+        // Check if query is invalid (like user profile query)
+        if (query && (query.includes('operationName":"user"') || /^\s*query\s+user\b/i.test(query))) {
+          query = null;
+          vars = null;
+        }
+
         if (!query) {
           try {
             const saved = localStorage.getItem('__pk_orders_query__') || sessionStorage.getItem('__pk_orders_query__');
             if (saved) {
               const parsed = JSON.parse(saved);
-              query = parsed.query || null;
-              vars = parsed.variables ? (typeof parsed.variables === 'string' ? parsed.variables : JSON.stringify(parsed.variables)) : null;
+              if (parsed.operationName === 'user' || (parsed.query && /^\s*query\s+user\b/i.test(parsed.query))) {
+                localStorage.removeItem('__pk_orders_query__');
+                sessionStorage.removeItem('__pk_orders_query__');
+              } else {
+                query = parsed.query || null;
+                vars = parsed.variables ? (typeof parsed.variables === 'string' ? parsed.variables : JSON.stringify(parsed.variables)) : null;
+              }
             }
           } catch (_) {}
         }
