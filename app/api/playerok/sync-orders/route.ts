@@ -86,6 +86,70 @@ const DEFAULT_DEALS_QUERY = `
   }
 `
 
+function deduplicateGraphQLFragments(queryStr: string): string {
+  let inString = false
+  let stringChar = ""
+  let depth = 0
+  let blockStart = 0
+  const blocks: string[] = []
+
+  for (let i = 0; i < queryStr.length; i++) {
+    const ch = queryStr[i]
+    if (inString) {
+      if (ch === "\\") {
+        i++
+      } else if (ch === stringChar) {
+        inString = false
+      }
+      continue
+    }
+
+    if (ch === '"') {
+      inString = true
+      stringChar = ch
+      continue
+    }
+
+    if (ch === "#") {
+      while (i < queryStr.length && queryStr[i] !== "\n") i++
+      continue
+    }
+
+    if (ch === "{") {
+      depth++
+    } else if (ch === "}") {
+      depth--
+      if (depth === 0) {
+        const block = queryStr.slice(blockStart, i + 1).trim()
+        blocks.push(block)
+        blockStart = i + 1
+      }
+    }
+  }
+
+  if (blockStart < queryStr.length) {
+    const remainder = queryStr.slice(blockStart).trim()
+    if (remainder) blocks.push(remainder)
+  }
+
+  const seenFragments = new Set<string>()
+  const finalBlocks: string[] = []
+
+  for (const block of blocks) {
+    const fragMatch = block.match(/^fragment\s+([A-Za-z0-9_]+)\s+on\b/i)
+    if (fragMatch) {
+      const fragName = fragMatch[1]
+      if (seenFragments.has(fragName)) {
+        continue
+      }
+      seenFragments.add(fragName)
+    }
+    finalBlocks.push(block)
+  }
+
+  return finalBlocks.join("\n\n")
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: request.headers })
@@ -127,6 +191,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const cleanQuery = deduplicateGraphQLFragments(query)
+
     let parsedVariables: Record<string, unknown> = {}
     if (sessionRows[0]?.ordersVariables) {
       try {
@@ -148,7 +214,7 @@ export async function POST(request: NextRequest) {
         "apollographql-client-name": "web",
       },
       body: JSON.stringify({
-        query,
+        query: cleanQuery,
         variables: parsedVariables,
       }),
     })
@@ -187,7 +253,9 @@ export async function POST(request: NextRequest) {
         obj.forEach(findDeals)
         return
       }
-      if (obj.id && obj.direction === "OUT" && obj.status) {
+      const isDeal = obj.id && (obj.__typename === "ItemDeal" || obj.status)
+      const isOut = !obj.direction || String(obj.direction).toUpperCase() === "OUT"
+      if (isDeal && isOut) {
         const id = String(obj.id).trim().toLowerCase()
         if (!seenNodeIds.has(id)) {
           seenNodeIds.add(id)
@@ -195,7 +263,9 @@ export async function POST(request: NextRequest) {
         }
         return
       }
-      if (obj.node && obj.node.id && obj.node.direction === "OUT") {
+      const isNodeDeal = obj.node?.id && (obj.node.__typename === "ItemDeal" || obj.node.status)
+      const isNodeOut = !obj.node?.direction || String(obj.node.direction).toUpperCase() === "OUT"
+      if (isNodeDeal && isNodeOut) {
         const id = String(obj.node.id).trim().toLowerCase()
         if (!seenNodeIds.has(id)) {
           seenNodeIds.add(id)

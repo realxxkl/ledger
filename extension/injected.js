@@ -284,13 +284,80 @@
     return null;
   }
 
+  function deduplicateGraphQLFragments(queryStr) {
+    if (typeof queryStr !== 'string') return queryStr;
+    let inString = false;
+    let stringChar = '';
+    let depth = 0;
+    let blockStart = 0;
+    const blocks = [];
+
+    for (let i = 0; i < queryStr.length; i++) {
+      const ch = queryStr[i];
+      if (inString) {
+        if (ch === '\\') {
+          i++;
+        } else if (ch === stringChar) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        stringChar = ch;
+        continue;
+      }
+
+      if (ch === '#') {
+        while (i < queryStr.length && queryStr[i] !== '\n') i++;
+        continue;
+      }
+
+      if (ch === '{') {
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          const block = queryStr.slice(blockStart, i + 1).trim();
+          blocks.push(block);
+          blockStart = i + 1;
+        }
+      }
+    }
+
+    if (blockStart < queryStr.length) {
+      const remainder = queryStr.slice(blockStart).trim();
+      if (remainder) blocks.push(remainder);
+    }
+
+    const seenFragments = new Set();
+    const finalBlocks = [];
+
+    for (const block of blocks) {
+      const fragMatch = block.match(/^fragment\s+([A-Za-z0-9_]+)\s+on\b/i);
+      if (fragMatch) {
+        const fragName = fragMatch[1];
+        if (seenFragments.has(fragName)) {
+          continue;
+        }
+        seenFragments.add(fragName);
+      }
+      finalBlocks.push(block);
+    }
+
+    return finalBlocks.join('\n\n');
+  }
+
   function checkAndCaptureOrdersQuery(payload) {
     if (!payload) return;
     const items = Array.isArray(payload) ? payload : [payload];
     for (const item of items) {
       if (!item || typeof item !== 'object') continue;
-      const queryStr = typeof item.query === 'string' ? item.query : '';
-      if (!queryStr) continue;
+      const rawQueryStr = typeof item.query === 'string' ? item.query : '';
+      if (!rawQueryStr) continue;
+
+      const queryStr = deduplicateGraphQLFragments(rawQueryStr);
 
       const isDealsQuery =
         /ItemDeal/i.test(queryStr) ||
@@ -305,14 +372,14 @@
 
       if (isDealsQuery) {
         const queryData = JSON.stringify({
-          query: item.query,
+          query: queryStr,
           variables: item.variables || {},
           operationName: item.operationName || null
         });
         try {
           sessionStorage.setItem('__pk_orders_query__', queryData);
           localStorage.setItem('__pk_orders_query__', queryData);
-          window.__PLAYEROK_ORDERS_QUERY__ = item.query;
+          window.__PLAYEROK_ORDERS_QUERY__ = queryStr;
           window.__PLAYEROK_ORDERS_VARIABLES__ = item.variables || {};
         } catch (_) {}
       }
