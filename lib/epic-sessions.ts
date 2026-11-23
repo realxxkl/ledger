@@ -9,6 +9,8 @@ export async function saveEpicSession(input: {
   accessToken: string
   refreshToken?: string
   expiresIn?: number
+  deviceAuthId?: string
+  deviceAuthSecret?: string
 }) {
   const now = new Date()
   await db
@@ -21,6 +23,8 @@ export async function saveEpicSession(input: {
       accessToken: input.accessToken,
       refreshToken: input.refreshToken ?? null,
       expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : null,
+      deviceAuthId: input.deviceAuthId ?? null,
+      deviceAuthSecret: input.deviceAuthSecret ?? null,
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -31,6 +35,8 @@ export async function saveEpicSession(input: {
         accessToken: input.accessToken,
         refreshToken: input.refreshToken ?? undefined,
         expiresAt: input.expiresIn ? new Date(now.getTime() + input.expiresIn * 1000) : undefined,
+        deviceAuthId: input.deviceAuthId ?? undefined,
+        deviceAuthSecret: input.deviceAuthSecret ?? undefined,
         refreshLockId: null,
         refreshLockUntil: null,
         updatedAt: now,
@@ -107,4 +113,12 @@ export async function getEpicSessionSummary(orderId: number) {
 
 export async function clearEpicSession(orderId: number) {
   await db.delete(epicOrderSessions).where(eq(epicOrderSessions.orderId, orderId))
+}
+
+export async function saveDeviceAuth(orderId: number, deviceAuthId: string, deviceAuthSecret: string) {
+  await db.update(epicOrderSessions).set({
+    deviceAuthId,
+    deviceAuthSecret,
+    updatedAt: new Date(),
+  }).where(eq(epicOrderSessions.orderId, orderId))
 }

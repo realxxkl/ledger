@@ -30,13 +30,14 @@ export async function POST(request: NextRequest) {
     }
 
     let accessToken = account.accessToken
+    const hasRefreshCapability = Boolean(account.refreshToken || account.deviceAuthId)
     const shouldRefresh = Boolean(
-      account.refreshToken &&
+      hasRefreshCapability &&
       account.expiresAt &&
       account.expiresAt.getTime() <= Date.now() + 30_000,
     )
 
-    if (shouldRefresh && account.refreshToken) {
+    if (shouldRefresh) {
       try {
         const refreshed = await refreshEpicSession(orderId)
         accessToken = refreshed.accessToken
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     let result = await requestExchange(accessToken)
     const tokenRejected = result.response.status === 401 || result.response.status === 403
 
-    if (tokenRejected && account.refreshToken) {
+    if (tokenRejected && hasRefreshCapability) {
       try {
         console.log(`[Epic] Order ${orderId}: access token rejected, refreshing session`)
         const refreshed = await refreshEpicSession(orderId, {

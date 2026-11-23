@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
-import { saveEpicSession } from "@/lib/epic-sessions"
+import { saveEpicSession, saveDeviceAuth } from "@/lib/epic-sessions"
 import { getEpicVBucksBalance } from "@/lib/epic-balance"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { db } from "@/lib/db"
@@ -10,6 +10,37 @@ import { eq } from "drizzle-orm"
 
 const OAUTH_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/oauth"
 const ACCOUNT_BASE = "https://account-public-service-prod.ol.epicgames.com/account/api/public/account"
+
+async function createDeviceAuth(accountId: string, accessToken: string): Promise<{ deviceId: string; secret: string } | null> {
+  try {
+    const response = await fetch(
+      `${ACCOUNT_BASE}/${encodeURIComponent(accountId)}/deviceAuth`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        cache: "no-store",
+      },
+    )
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[Epic] Device auth creation failed for ${accountId}: HTTP ${response.status}`, errorText)
+      return null
+    }
+    const data = await response.json()
+    if (data.deviceId && data.secret) {
+      console.log(`[Epic] Device auth created for ${accountId}: deviceId=${data.deviceId}`)
+      return { deviceId: data.deviceId, secret: data.secret }
+    }
+    console.error(`[Epic] Device auth response missing deviceId/secret for ${accountId}`, data)
+    return null
+  } catch (error) {
+    console.error(`[Epic] Device auth creation error for ${accountId}`, error)
+    return null
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,6 +89,10 @@ export async function POST(request: NextRequest) {
     })
     const profileData = await profileResponse.json()
     const numericOrderId = Number(orderId)
+
+    // Create device auth credentials for persistent access
+    const deviceAuth = await createDeviceAuth(tokenData.account_id, tokenData.access_token)
+
     await saveEpicSession({
       orderId: numericOrderId,
       accountId: tokenData.account_id,
@@ -65,7 +100,10 @@ export async function POST(request: NextRequest) {
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token,
       expiresIn: tokenData.expires_in,
+      deviceAuthId: deviceAuth?.deviceId,
+      deviceAuthSecret: deviceAuth?.secret,
     })
+
     let vbucksBefore: number | undefined
     let balanceWarning: string | undefined
     try {
@@ -77,7 +115,14 @@ export async function POST(request: NextRequest) {
       console.error(`[Epic] Could not record starting VBucks balance for order ${numericOrderId}`, error)
       balanceWarning = "Epic account connected, but the starting VBucks balance could not be saved."
     }
-    return NextResponse.json({ status: "completed", displayName: profileData.displayName || tokenData.displayName, accountId: tokenData.account_id, vbucksBefore, balanceWarning })
+    return NextResponse.json({
+      status: "completed",
+      displayName: profileData.displayName || tokenData.displayName,
+      accountId: tokenData.account_id,
+      vbucksBefore,
+      balanceWarning,
+      deviceAuth: deviceAuth ? "created" : "failed",
+    })
   } catch (error) {
     console.error("[v0] Epic authorization status failed:", error)
     return NextResponse.json({ status: "error", error: "Unable to check Epic authorization" }, { status: 500 })

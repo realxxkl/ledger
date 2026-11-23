@@ -22,6 +22,8 @@ export async function ensureOrderTrackingSchema() {
       );
       ALTER TABLE playerok_session ADD COLUMN IF NOT EXISTS orders_query text;
       ALTER TABLE playerok_session ADD COLUMN IF NOT EXISTS orders_variables text;
+      ALTER TABLE epic_order_sessions ADD COLUMN IF NOT EXISTS device_auth_id text;
+      ALTER TABLE epic_order_sessions ADD COLUMN IF NOT EXISTS device_auth_secret text;
       UPDATE entries
       SET waiting_since = date
       WHERE waiting_since IS NULL
