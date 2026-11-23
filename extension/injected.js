@@ -360,6 +360,27 @@
     return finalBlocks.join('\n\n');
   }
 
+  function isGenuineDealsQuery(queryStr, operationName) {
+    if (!queryStr || typeof queryStr !== 'string') return false;
+    const op = String(operationName || '').toLowerCase();
+    if (op.includes('user') || op.includes('profileuser') || op.includes('item') || op.includes('balance') || op.includes('chat')) {
+      return false;
+    }
+    const hasDealsSelection =
+      /\bdeals\s*[({\[]/i.test(queryStr) ||
+      /\bdeal\s*\(/i.test(queryStr) ||
+      /getProfileSales/i.test(queryStr) ||
+      /profileLegacySales/i.test(queryStr) ||
+      /profileDeals/i.test(queryStr);
+
+    const hasDealFields =
+      queryStr.includes('ItemDeal') ||
+      (queryStr.includes('edges') && queryStr.includes('node')) ||
+      (queryStr.includes('direction') && queryStr.includes('status'));
+
+    return Boolean(hasDealsSelection && hasDealFields);
+  }
+
   function checkAndCaptureOrdersQuery(payload) {
     if (!payload) return;
     const items = Array.isArray(payload) ? payload : [payload];
@@ -368,35 +389,21 @@
       const rawQueryStr = typeof item.query === 'string' ? item.query : '';
       if (!rawQueryStr) continue;
 
-      // Never capture user profile query
-      if (item.operationName === 'user' || /^\s*query\s+user\b/i.test(rawQueryStr)) {
-        continue;
-      }
+      const opName = item.operationName || extractOperationName(rawQueryStr) || '';
+      if (!isGenuineDealsQuery(rawQueryStr, opName)) continue;
 
       const queryStr = deduplicateGraphQLFragments(rawQueryStr);
-
-      const isDealsQuery =
-        /deals\s*[({\[]/i.test(queryStr) ||
-        /\bdeals\s*:/i.test(queryStr) ||
-        /getProfileSales/i.test(queryStr) ||
-        /profileSales/i.test(queryStr) ||
-        /getDeals/i.test(queryStr) ||
-        /\bItemDeal\b/i.test(queryStr) ||
-        /direction\s*:\s*OUT/i.test(queryStr);
-
-      if (isDealsQuery) {
-        const queryData = JSON.stringify({
-          query: queryStr,
-          variables: item.variables || {},
-          operationName: item.operationName || extractOperationName(queryStr) || null
-        });
-        try {
-          sessionStorage.setItem('__pk_orders_query__', queryData);
-          localStorage.setItem('__pk_orders_query__', queryData);
-          window.__PLAYEROK_ORDERS_QUERY__ = queryStr;
-          window.__PLAYEROK_ORDERS_VARIABLES__ = item.variables || {};
-        } catch (_) {}
-      }
+      const queryData = JSON.stringify({
+        query: queryStr,
+        variables: item.variables || {},
+        operationName: opName || extractOperationName(queryStr) || null
+      });
+      try {
+        sessionStorage.setItem('__pk_orders_query__', queryData);
+        localStorage.setItem('__pk_orders_query__', queryData);
+        window.__PLAYEROK_ORDERS_QUERY__ = queryStr;
+        window.__PLAYEROK_ORDERS_VARIABLES__ = item.variables || {};
+      } catch (_) {}
     }
   }
 
@@ -406,14 +413,13 @@
       if (!client) return null;
       const queries = client.queryManager?.queries;
       if (queries) {
-        const list = queries.values ? Array.from(queries.values()) : (Array.isArray(queries) ? queries : []);
+        const list = queries.values ? Array.from(queries.values()) : (Array.isArray(queries) ? queries : Object.values(queries));
         for (const q of list) {
           const doc = q?.document;
           const queryStr = doc?.loc?.source?.body || '';
-          const opName = doc?.definitions?.[0]?.name?.value || '';
-          if (opName === 'user' || /^\s*query\s+user\b/i.test(queryStr)) continue;
+          const opName = doc?.definitions?.[0]?.name?.value || extractOperationName(queryStr) || '';
 
-          if (queryStr && (/deals\s*[({\[]/i.test(queryStr) || /getProfileSales/i.test(queryStr) || /ItemDeal/i.test(queryStr))) {
+          if (isGenuineDealsQuery(queryStr, opName)) {
             const cleanQuery = deduplicateGraphQLFragments(queryStr);
             const data = {
               query: cleanQuery,

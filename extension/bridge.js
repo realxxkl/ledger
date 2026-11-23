@@ -358,8 +358,12 @@
         let query = cachedOrdersQuery;
         let vars = cachedOrdersVariables;
 
-        // Check if query is invalid (like user profile query)
-        if (query && (query.includes('operationName":"user"') || /^\s*query\s+user\b/i.test(query))) {
+        function isInvalidUserQuery(q) {
+          if (!q || typeof q !== 'string') return false;
+          return q.includes('profileLegacyUser') || q.includes('operationName":"user"') || /^\s*query\s+[a-zA-Z0-9_]*user\b/i.test(q);
+        }
+
+        if (query && isInvalidUserQuery(query)) {
           query = null;
           vars = null;
         }
@@ -369,7 +373,7 @@
             const saved = localStorage.getItem('__pk_orders_query__') || sessionStorage.getItem('__pk_orders_query__');
             if (saved) {
               const parsed = JSON.parse(saved);
-              if (parsed.operationName === 'user' || (parsed.query && /^\s*query\s+user\b/i.test(parsed.query))) {
+              if (isInvalidUserQuery(parsed.query) || isInvalidUserQuery(parsed.operationName)) {
                 localStorage.removeItem('__pk_orders_query__');
                 sessionStorage.removeItem('__pk_orders_query__');
               } else {
@@ -391,10 +395,10 @@
             statusEl.style.color = '#f87171';
           } else {
             if (res.hasOrdersQuery) {
-              statusEl.innerText = `Cookies & query ready for server!`;
+              statusEl.innerText = `Cookies & Sales query ready!`;
               statusEl.style.color = '#10b981';
             } else {
-              statusEl.innerText = `Cookies synced! Refresh an order/sale page to link query`;
+              statusEl.innerText = `Cookies synced! Click between Sales tabs to link query`;
               statusEl.style.color = '#fbbf24';
             }
           }

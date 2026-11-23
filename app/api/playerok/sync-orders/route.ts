@@ -188,10 +188,16 @@ export async function POST(request: NextRequest) {
     // 2. Fetch orders from Playerok GraphQL
     const query = sessionRows[0]?.ordersQuery
     const op = query ? extractOperationName(query) : null
-    if (!query || op === "user" || /^\s*query\s+user\b/i.test(query)) {
+    const isInvalid = !query ||
+      op === "user" ||
+      op === "profileLegacyUser" ||
+      /user/i.test(op || "") ||
+      /^\s*query\s+[a-zA-Z0-9_]*user\b/i.test(query)
+
+    if (isInvalid) {
       return NextResponse.json(
         {
-          error: "Orders query schema not linked yet. Please reload the extension in Chrome, click [Sync Cookies] on your Sales page, then retry.",
+          error: "Sales query template not linked yet. On your Playerok Sales page, click between the tabs (e.g. 'Завершённые' and back to 'Активные'), click [Sync Cookies] in the extension widget, then retry.",
         },
         { status: 400 }
       )
