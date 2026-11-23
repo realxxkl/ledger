@@ -260,33 +260,36 @@ export async function POST(request: NextRequest) {
     // Deep find deals in data
     const nodes: any[] = []
     const seenNodeIds = new Set<string>()
-    function findDeals(obj: any) {
-      if (!obj || typeof obj !== "object") return
-      if (Array.isArray(obj)) {
-        obj.forEach(findDeals)
+    function findDeals(val: any) {
+      if (!val || typeof val !== "object") return
+      if (Array.isArray(val)) {
+        val.forEach(findDeals)
         return
       }
-      const isDeal = obj.id && (obj.__typename === "ItemDeal" || obj.status)
-      const isOut = !obj.direction || String(obj.direction).toUpperCase() === "OUT"
-      if (isDeal && isOut) {
-        const id = String(obj.id).trim().toLowerCase()
+
+      const hasDealIndicators =
+        val.id &&
+        (val.__typename === "ItemDeal" ||
+         val.__typename === "Deal" ||
+         (val.status && (val.item || val.obtainingFields || val.transaction || val.user)))
+
+      const isOut = !val.direction || String(val.direction).toUpperCase() === "OUT"
+
+      if (hasDealIndicators && isOut) {
+        const id = String(val.id).trim().toLowerCase()
         if (!seenNodeIds.has(id)) {
           seenNodeIds.add(id)
-          nodes.push(obj)
+          nodes.push(val)
         }
         return
       }
-      const isNodeDeal = obj.node?.id && (obj.node.__typename === "ItemDeal" || obj.node.status)
-      const isNodeOut = !obj.node?.direction || String(obj.node.direction).toUpperCase() === "OUT"
-      if (isNodeDeal && isNodeOut) {
-        const id = String(obj.node.id).trim().toLowerCase()
-        if (!seenNodeIds.has(id)) {
-          seenNodeIds.add(id)
-          nodes.push(obj.node)
-        }
+
+      if (val.node && typeof val.node === "object" && val.node.id) {
+        findDeals(val.node)
         return
       }
-      Object.values(obj).forEach(findDeals)
+
+      Object.values(val).forEach(findDeals)
     }
     findDeals(data?.data ?? data)
 
@@ -370,13 +373,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const debugSnippet = JSON.stringify(data).slice(0, 160)
+
     return NextResponse.json({
       success: true,
       totalFound: nodes.length,
       accepted,
       updated,
       alreadyLogged,
-      message: `Found ${nodes.length} order(s): ${accepted} new, ${updated} updated.`,
+      message: nodes.length > 0
+        ? `Found ${nodes.length} order(s): ${accepted} new, ${updated} updated.`
+        : `Found 0 order(s) (op: ${operationName || "none"}, data: ${debugSnippet})`,
     })
   } catch (error) {
     console.error("[Playerok Sync] Error:", error)
