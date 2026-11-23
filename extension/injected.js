@@ -721,6 +721,164 @@
     return null;
   }
 
+  function scrapeOffersFromDom() {
+    const scraped = [];
+    const seenIds = new Set();
+
+    // 1. Collect all UUIDs present on the page HTML for matching short slugs to full UUIDs
+    const allHtml = document.documentElement.innerHTML;
+    const pageUuids = Array.from(
+      allHtml.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi),
+      (m) => m[0].toLowerCase()
+    );
+    const uniqueUuids = Array.from(new Set(pageUuids));
+
+    // 2. Check tab status on profile: active vs completed / off-sale
+    let pageOnSale = true;
+    let pageTabStatus = 'APPROVED';
+    const subtabs = Array.from(document.querySelectorAll('button, a, div[role="tab"]'));
+    for (const tab of subtabs) {
+      const txt = (tab.textContent || '').trim().toLowerCase();
+      const isActive = tab.getAttribute('aria-selected') === 'true' ||
+        (tab.className || '').toLowerCase().includes('active') ||
+        (tab.className || '').toLowerCase().includes('selected');
+      if (isActive && (txt.includes('заверш') || txt.includes('архив') || txt.includes('неактив'))) {
+        pageTabStatus = 'PAUSED';
+        pageOnSale = false;
+        break;
+      }
+    }
+
+    // 3. Find candidate product card links - ONLY strictly matching hexadecimal product slugs
+    // E.g. /products/f3e4f58b1e8d-3200-v-bucks-bystro-i-deshevo
+    // This rejects tab names like "completed", "active", "edit", etc.
+    const allLinks = Array.from(document.querySelectorAll('a[href*="/products/"], a[href*="/item/"]'));
+    const junkWords = new Set(['активные', 'завершённые', 'мои товары', 'покупки', 'продажи', 'отзывы', 'подробнее', 'default']);
+
+    for (const link of allLinks) {
+      const href = link.getAttribute('href') || link.href || '';
+      // Only match hexadecimal slugs (min 8 hex characters)
+      const match = href.match(/\/products\/([0-9a-f]{8,32}|[0-9a-f-]{36})(?:-[^/?#]*)?/i) ||
+                    href.match(/\/item\/([0-9a-f]{8,32}|[0-9a-f-]{36})/i);
+      if (!match) continue;
+
+      // Ignore links inside header, nav, or footer
+      if (link.closest('header, nav, footer, [class*="footer"], [class*="header"]')) continue;
+
+      const slugIdPart = match[1].toLowerCase();
+
+      // Find the card container
+      const cardContainer = link.closest('[class*="card"], [class*="item"], [class*="lot"], article, div') || link;
+
+      // Try React Fiber extraction first
+      let fiberItem = extractItemFromFiber(link) || extractItemFromFiber(cardContainer);
+
+      let resolvedId = slugIdPart;
+      if (fiberItem && fiberItem.id && /^[0-9a-zA-Z-]{8,64}$/.test(String(fiberItem.id))) {
+        resolvedId = String(fiberItem.id);
+      } else {
+        // Resolve short 12-char hex slug to full 36-char UUID from page if available
+        const fullUuid = uniqueUuids.find((u) => u.endsWith(slugIdPart) || u.replace(/-/g, '').endsWith(slugIdPart));
+        if (fullUuid) resolvedId = fullUuid;
+      }
+
+      if (!resolvedId || seenIds.has(resolvedId)) continue;
+      seenIds.add(resolvedId);
+
+      // Extract title: fiber -> text nodes inside card
+      let title = fiberItem?.name || fiberItem?.title;
+      if (!title) {
+        const textNodes = [];
+        const walker = document.createTreeWalker(cardContainer, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const t = walker.currentNode.textContent.trim();
+          const tLower = t.toLowerCase();
+          if (
+            t &&
+            t.length >= 3 &&
+            !t.includes('₽') &&
+            !t.includes('дн.') &&
+            !t.includes('ч.') &&
+            !t.includes('мин.') &&
+            !junkWords.has(tLower) &&
+            isNaN(Number(t))
+          ) {
+            textNodes.push(t);
+          }
+        }
+        title = textNodes.find((t) => t.length >= 5) || textNodes[0] || '';
+      }
+
+      // If title is still junk, clean from slug
+      if (!title || junkWords.has(String(title).toLowerCase())) {
+        const fullMatch = href.match(/\/products\/[0-9a-f-]+-([^/?#]+)/i);
+        if (fullMatch && fullMatch[1]) {
+          title = decodeURIComponent(fullMatch[1]).replace(/-/g, ' ');
+        } else {
+          continue; // Skip if no valid title can be identified
+        }
+      }
+
+      // Extract price (RUB)
+      let price = fiberItem?.price;
+      if (price === undefined || isNaN(Number(price))) {
+        const priceEl = Array.from(cardContainer.querySelectorAll('*')).find((el) => {
+          return el.children.length === 0 && el.textContent && el.textContent.includes('₽');
+        });
+        if (priceEl) {
+          const raw = priceEl.textContent.replace(/[^\d]/g, '');
+          price = raw ? Number(raw) : 0;
+        } else {
+          price = 0;
+        }
+      } else {
+        price = Number(price);
+      }
+
+      // Extract image URL
+      let imageUrl = fiberItem?.imageUrl || fiberItem?.image || fiberItem?.photo;
+      if (!imageUrl) {
+        const img = cardContainer.querySelector('img');
+        if (img) imageUrl = img.src || img.getAttribute('src');
+      }
+
+      let parsedImageUrl = null;
+      if (typeof imageUrl === 'string') {
+        try {
+          const u = new URL(imageUrl, window.location.origin);
+          if (u.protocol === 'https:') parsedImageUrl = u.href;
+        } catch {}
+      }
+
+      // Check card text for off-sale indicators
+      const cardText = (cardContainer.textContent || '').toLowerCase();
+      const cardIsOffSale = !pageOnSale ||
+        cardText.includes('снято с продажи') ||
+        cardText.includes('неактивен') ||
+        cardText.includes('завершено');
+
+      const offer = {
+        externalOfferId: String(resolvedId),
+        title: String(title).trim(),
+        description: fiberItem?.description || null,
+        imageUrl: parsedImageUrl,
+        price: Number.isFinite(price) && price >= 0 ? price : 0,
+        rawPrice: Number.isFinite(price) && price >= 0 ? price : 0,
+        categoryId: String(fiberItem?.categoryId || 'default'),
+        gameId: String(fiberItem?.gameId || 'default'),
+        status: cardIsOffSale ? 'PAUSED' : 'APPROVED',
+        keepInSale: !cardIsOffSale,
+        onSale: !cardIsOffSale
+      };
+
+      scraped.push(offer);
+      discoveredOffersMap.set(offer.externalOfferId, offer);
+    }
+
+    console.log(`[Playerok Bridge] scrapeOffersFromDom: found ${scraped.length} valid offer card(s)`);
+    return scraped;
+  }
+
   // Fetch only the signed-in user's own items directly via GraphQL (all statuses).
   async function fetchOwnOffersViaGql() {
     // 1. Find current user's own ID from Apollo cache (isMe: true)
@@ -902,7 +1060,11 @@
       const cachedOffers = extractAllPlayerokItems();
       for (const off of cachedOffers) discoveredOffersMap.set(off.externalOfferId, off);
 
-      // Try direct GraphQL query for own offers (most reliable, all statuses)
+      // Scrape visible cards from the profile grid
+      const domOffers = scrapeOffersFromDom();
+      for (const off of domOffers) discoveredOffersMap.set(off.externalOfferId, off);
+
+      // Try direct GraphQL query for own offers as supplement
       try {
         const ownOffers = await fetchOwnOffersViaGql();
         for (const off of ownOffers) discoveredOffersMap.set(off.externalOfferId, off);
