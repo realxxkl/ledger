@@ -52,6 +52,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const cookies = typeof body.cookies === "string" ? body.cookies.trim() : ""
+    const ordersQuery = typeof body.ordersQuery === "string" ? body.ordersQuery.trim() : null
+    const ordersVariables = typeof body.ordersVariables === "string" ? body.ordersVariables.trim() : null
     if (!cookies) {
       return NextResponse.json({ error: "Cookies string is required" }, { status: 400 })
     }
@@ -62,6 +64,8 @@ export async function POST(request: NextRequest) {
     await db.delete(playerokSession)
     const inserted = await db.insert(playerokSession).values({
       cookies,
+      ordersQuery,
+      ordersVariables,
       updatedAt: new Date(),
     }).returning({ id: playerokSession.id, updatedAt: playerokSession.updatedAt })
 

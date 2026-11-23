@@ -1219,6 +1219,15 @@
           cursorVariable,
           initialOrderCount: itemDeals.length
         };
+        try {
+          if (requestPayload.query) {
+            sessionStorage.setItem('__pk_orders_query__', JSON.stringify({
+              query: requestPayload.query,
+              variables: requestPayload.variables || {},
+              operationName: requestPayload.operationName || null
+            }));
+          }
+        } catch (_) {}
       }
     });
   }
@@ -1703,10 +1712,10 @@
   window.WebSocket.prototype = OriginalWebSocket.prototype;
 
   function scrapeChatsFromDom() {
-    const chatLinks = Array.from(document.querySelectorAll('a[href*="/chats/"]'));
+    const chatLinks = Array.from(document.querySelectorAll('a[href*="/chats/"], a[href*="/chat/"]'));
     for (const link of chatLinks) {
       const href = link.getAttribute('href') || link.href || '';
-      const match = href.match(/\/chats\/([0-9a-zA-Z-]+)/);
+      const match = href.match(/\/chats?\/([0-9a-zA-Z-]+)/);
       if (!match) continue;
       const slug = match[1];
       const chatId = slug.split('-')[0];
@@ -1725,6 +1734,34 @@
         recordChatMapping(username, chatId);
       }
     }
+
+    // Also scrape deal page if currently viewing an active or completed sale/deal
+    try {
+      const dealMatch = window.location.pathname.match(/\/deal\/([a-zA-Z0-9-]+)/i);
+      if (dealMatch) {
+        const currentDealId = dealMatch[1].toLowerCase();
+        let dealChatId = null;
+        let buyerUsername = null;
+
+        const chatLink = document.querySelector('a[href*="/chats/"], a[href*="/chat/"]');
+        if (chatLink) {
+          const href = chatLink.getAttribute('href') || chatLink.href || '';
+          const m = href.match(/\/chats?\/([0-9a-zA-Z-]+)/);
+          if (m) dealChatId = m[1].split('-')[0];
+        }
+
+        const userLink = document.querySelector('a[href*="/user/"], a[href*="/profile/"]');
+        if (userLink) {
+          const href = userLink.getAttribute('href') || userLink.href || '';
+          const m = href.match(/\/(?:user|profile)\/([0-9a-zA-Z_.-]+)/);
+          if (m) buyerUsername = m[1];
+        }
+
+        if (dealChatId) {
+          recordChatMapping(buyerUsername, dealChatId, currentDealId);
+        }
+      }
+    } catch (_) {}
   }
 
   function getExportableChatMappings() {
@@ -1761,7 +1798,26 @@
   }, { once: true });
 
   window.addEventListener('message', (event) => {
-    if (event.source === window && event.data?.source === 'PLAYEROK_FORCE_SYNC') {
+    if (event.source !== window) return;
+
+    if (event.data?.source === 'PLAYEROK_REQUEST_SESSION_DATA') {
+      emitChatMappings();
+      let queryPayload = firstOrdersQuery?.request?.payload || null;
+      if (!queryPayload) {
+        try {
+          const saved = sessionStorage.getItem('__pk_orders_query__') || localStorage.getItem('__pk_orders_query__');
+          if (saved) queryPayload = JSON.parse(saved);
+        } catch (_) {}
+      }
+      window.postMessage({
+        source: 'PLAYEROK_SESSION_DATA_RESPONSE',
+        ordersQuery: queryPayload?.query || null,
+        ordersVariables: queryPayload?.variables ? JSON.stringify(queryPayload.variables) : null,
+      }, '*');
+      return;
+    }
+
+    if (event.data?.source === 'PLAYEROK_FORCE_SYNC') {
       emitChatMappings();
       const orderCount = extractFromApolloCache(true);
       const refundedOrderCount = extractRefundedDealsFromPage(true);

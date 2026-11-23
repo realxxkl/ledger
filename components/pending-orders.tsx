@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import { Check, LoaderCircle, MessageCircle, PackageCheck, Plus, Search } from "lucide-react"
+import { Check, LoaderCircle, MessageCircle, PackageCheck, Plus, RefreshCw, Search } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import { currency, formatWaitingSince } from "@/lib/types"
 import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-completion-dialog"
@@ -322,6 +322,29 @@ export function PendingOrders({
   }, [authLinks, now])
   const [exchangeLinks, setExchangeLinks] = useState<Record<number, string>>({})
   const [fortniteLoginLinks, setFortniteLoginLinks] = useState<Record<number, string>>({})
+  const [syncingServerOrders, setSyncingServerOrders] = useState(false)
+  const [serverSyncNotice, setServerSyncNotice] = useState("")
+  const [serverSyncError, setServerSyncError] = useState("")
+
+  async function handleSyncServerOrders() {
+    if (syncingServerOrders) return
+    setSyncingServerOrders(true)
+    setServerSyncNotice("")
+    setServerSyncError("")
+    try {
+      const response = await fetch("/api/playerok/sync-orders", { method: "POST" })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.error || `Server error (HTTP ${response.status})`)
+      }
+      setServerSyncNotice(data.message || `Playerok sync completed.`)
+      await onChange()
+    } catch (err) {
+      setServerSyncError(err instanceof Error ? err.message : "Failed to sync orders from Playerok")
+    } finally {
+      setSyncingServerOrders(false)
+    }
+  }
   async function copyOrderLink(order: Entry, link: string) {
     if (!link) return
     setCopyingOrderId(order.id)
@@ -746,9 +769,42 @@ export function PendingOrders({
             <h2 className="font-display text-xl font-black uppercase tracking-tight">orders</h2>
             <p className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">active order fulfillment</p>
           </div>
-          <span className="border-2 border-primary px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
-            {orders.length} {orders.length === 1 ? "order" : "orders"}
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleSyncServerOrders}
+              disabled={syncingServerOrders}
+              className="flex items-center gap-1.5 border-2 border-border bg-background px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              title="Sync latest orders directly from Playerok via server using stored cookies"
+            >
+              {syncingServerOrders ? (
+                <>
+                  <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  Syncing…
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
+                  Sync Playerok
+                </>
+              )}
+            </button>
+            <span className="border-2 border-primary px-3 py-1 text-xs font-bold uppercase tracking-wider text-primary">
+              {orders.length} {orders.length === 1 ? "order" : "orders"}
+            </span>
+          </div>
+        </div>
+      )}
+      {serverSyncNotice && (
+        <div className="flex items-center justify-between border-b-2 border-border bg-emerald-500/10 px-5 py-2.5 text-xs font-bold text-emerald-400">
+          <span>{serverSyncNotice}</span>
+          <button type="button" onClick={() => setServerSyncNotice("")} className="text-muted-foreground hover:text-foreground">✕</button>
+        </div>
+      )}
+      {serverSyncError && (
+        <div className="flex items-center justify-between border-b-2 border-border bg-destructive/10 px-5 py-2.5 text-xs font-bold text-destructive">
+          <span>{serverSyncError}</span>
+          <button type="button" onClick={() => setServerSyncError("")} className="text-muted-foreground hover:text-foreground">✕</button>
         </div>
       )}
       {focusedOrderId && <h3 className="border-b-2 border-border px-5 py-4 font-display text-lg font-black uppercase tracking-tight">Order fulfillment</h3>}

@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'SYNC_COOKIES_TO_LEDGER') {
-    syncPlayerokCookiesToLedger()
+    syncPlayerokCookiesToLedger(message.ordersQuery, message.ordersVariables)
       .then(sendResponse)
       .catch((err) => {
         console.error('[Playerok Bridge] Could not sync cookies to Ledger:', err);
@@ -334,7 +334,7 @@ async function syncOffersToLedger(offers) {
   return { success: true, count: offers.length };
 }
 
-async function syncPlayerokCookiesToLedger() {
+async function syncPlayerokCookiesToLedger(ordersQuery, ordersVariables) {
   try {
     const cookies = await chrome.cookies.getAll({ domain: 'playerok.com' });
     if (!cookies || cookies.length === 0) {
@@ -354,7 +354,11 @@ async function syncPlayerokCookiesToLedger() {
         'Content-Type': 'application/json',
         'x-webhook-secret': WEBHOOK_SECRET
       },
-      body: JSON.stringify({ cookies: cookieString })
+      body: JSON.stringify({
+        cookies: cookieString,
+        ordersQuery: typeof ordersQuery === 'string' && ordersQuery.trim() ? ordersQuery.trim() : undefined,
+        ordersVariables: typeof ordersVariables === 'string' && ordersVariables.trim() ? ordersVariables.trim() : undefined
+      })
     });
 
     if (!res.ok) {

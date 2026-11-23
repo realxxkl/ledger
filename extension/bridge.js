@@ -1,6 +1,17 @@
 (function () {
   let messageBatchInProgress = false;
 
+  let cachedOrdersQuery = null;
+  let cachedOrdersVariables = null;
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data?.source === 'PLAYEROK_SESSION_DATA_RESPONSE') {
+      cachedOrdersQuery = event.data.ordersQuery || null;
+      cachedOrdersVariables = event.data.ordersVariables || null;
+    }
+  });
+
   // 1. Relay intercepted deals from MAIN world (injected.js) to Background Service Worker
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.data?.source !== 'PLAYEROK_BRIDGE_INTERCEPT') return;
@@ -338,16 +349,29 @@
       btn.disabled = true;
       statusEl.innerText = 'Syncing cookies...';
       statusEl.style.color = '#c084fc';
-      chrome.runtime.sendMessage({ type: 'SYNC_COOKIES_TO_LEDGER' }, (res) => {
-        btn.disabled = false;
-        if (res?.error) {
-          statusEl.innerText = `Cookies: ${res.error}`;
-          statusEl.style.color = '#f87171';
-        } else {
-          statusEl.innerText = `Cookies: ${res.count} synced!`;
-          statusEl.style.color = '#a855f7';
-        }
-      });
+
+      let finished = false;
+      function proceed() {
+        if (finished) return;
+        finished = true;
+        chrome.runtime.sendMessage({
+          type: 'SYNC_COOKIES_TO_LEDGER',
+          ordersQuery: cachedOrdersQuery,
+          ordersVariables: cachedOrdersVariables,
+        }, (res) => {
+          btn.disabled = false;
+          if (res?.error) {
+            statusEl.innerText = `Cookies: ${res.error}`;
+            statusEl.style.color = '#f87171';
+          } else {
+            statusEl.innerText = `Cookies: ${res.count} synced!`;
+            statusEl.style.color = '#a855f7';
+          }
+        });
+      }
+
+      window.postMessage({ source: 'PLAYEROK_REQUEST_SESSION_DATA' }, '*');
+      setTimeout(proceed, 200);
     };
   }
 

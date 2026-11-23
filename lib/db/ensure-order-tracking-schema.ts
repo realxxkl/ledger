@@ -16,8 +16,12 @@ export async function ensureOrderTrackingSchema() {
       CREATE TABLE IF NOT EXISTS playerok_session (
         id serial PRIMARY KEY,
         cookies text NOT NULL,
+        orders_query text,
+        orders_variables text,
         updated_at timestamptz NOT NULL DEFAULT now()
       );
+      ALTER TABLE playerok_session ADD COLUMN IF NOT EXISTS orders_query text;
+      ALTER TABLE playerok_session ADD COLUMN IF NOT EXISTS orders_variables text;
       UPDATE entries
       SET waiting_since = date
       WHERE waiting_since IS NULL

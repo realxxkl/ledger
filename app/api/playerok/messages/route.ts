@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { desc, eq, or } from "drizzle-orm"
+import { desc, eq, or, sql } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
@@ -109,13 +109,24 @@ export async function POST(request: NextRequest) {
       }
 
       if (!chatId) {
-        // Fallback: look up by buyerUsername
+        // Fallback: look up by buyerUsername case-insensitively for any recorded chatId
         const userRows = await db.select({ chatId: entries.chatId })
           .from(entries)
-          .where(eq(entries.buyerUsername, buyerUsername))
+          .where(sql`LOWER(${entries.buyerUsername}) = LOWER(${buyerUsername}) AND ${entries.chatId} IS NOT NULL AND ${entries.chatId} != ''`)
           .limit(1)
 
         chatId = userRows[0]?.chatId || undefined
+        if (chatId && recipient.orderId) {
+          // Backfill this order's chatId for future lookups
+          await db.update(entries)
+            .set({ chatId })
+            .where(
+              or(
+                eq(entries.externalOrderId, recipient.orderId.trim()),
+                eq(entries.externalOrderId, recipient.orderId.trim().toLowerCase())
+              )
+            )
+        }
       }
 
       if (!chatId) {

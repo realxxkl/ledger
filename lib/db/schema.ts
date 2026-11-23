@@ -140,5 +140,7 @@ export const offers = pgTable("offers", {
 export const playerokSession = pgTable("playerok_session", {
   id: serial("id").primaryKey(),
   cookies: text("cookies").notNull(),
+  ordersQuery: text("orders_query"),
+  ordersVariables: text("orders_variables"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
