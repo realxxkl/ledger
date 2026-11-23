@@ -1221,11 +1221,13 @@
         };
         try {
           if (requestPayload.query) {
-            sessionStorage.setItem('__pk_orders_query__', JSON.stringify({
+            const queryData = JSON.stringify({
               query: requestPayload.query,
               variables: requestPayload.variables || {},
               operationName: requestPayload.operationName || null
-            }));
+            });
+            sessionStorage.setItem('__pk_orders_query__', queryData);
+            localStorage.setItem('__pk_orders_query__', queryData);
           }
         } catch (_) {}
       }

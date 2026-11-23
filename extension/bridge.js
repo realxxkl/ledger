@@ -6,9 +6,9 @@
 
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
-    if (event.data?.source === 'PLAYEROK_SESSION_DATA_RESPONSE') {
-      cachedOrdersQuery = event.data.ordersQuery || null;
-      cachedOrdersVariables = event.data.ordersVariables || null;
+    if (event.data?.source === 'PLAYEROK_SESSION_DATA_RESPONSE' || event.data?.source === 'PLAYEROK_ORDERS_QUERY_CAPTURED') {
+      cachedOrdersQuery = event.data.ordersQuery || event.data.query || cachedOrdersQuery;
+      cachedOrdersVariables = event.data.ordersVariables || event.data.variables || cachedOrdersVariables;
     }
   });
 
@@ -354,18 +354,37 @@
       function proceed() {
         if (finished) return;
         finished = true;
+
+        let query = cachedOrdersQuery;
+        let vars = cachedOrdersVariables;
+        if (!query) {
+          try {
+            const saved = localStorage.getItem('__pk_orders_query__') || sessionStorage.getItem('__pk_orders_query__');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              query = parsed.query || null;
+              vars = parsed.variables ? (typeof parsed.variables === 'string' ? parsed.variables : JSON.stringify(parsed.variables)) : null;
+            }
+          } catch (_) {}
+        }
+
         chrome.runtime.sendMessage({
           type: 'SYNC_COOKIES_TO_LEDGER',
-          ordersQuery: cachedOrdersQuery,
-          ordersVariables: cachedOrdersVariables,
+          ordersQuery: query,
+          ordersVariables: vars,
         }, (res) => {
           btn.disabled = false;
           if (res?.error) {
             statusEl.innerText = `Cookies: ${res.error}`;
             statusEl.style.color = '#f87171';
           } else {
-            statusEl.innerText = `Cookies: ${res.count} synced!`;
-            statusEl.style.color = '#a855f7';
+            if (res.hasOrdersQuery) {
+              statusEl.innerText = `Cookies & query ready for server!`;
+              statusEl.style.color = '#10b981';
+            } else {
+              statusEl.innerText = `Cookies synced! Open Sales page to link query`;
+              statusEl.style.color = '#fbbf24';
+            }
           }
         });
       }

@@ -117,8 +117,17 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Fetch orders from Playerok GraphQL
-    const query = sessionRows[0]?.ordersQuery || DEFAULT_DEALS_QUERY
-    let parsedVariables = {}
+    const query = sessionRows[0]?.ordersQuery
+    if (!query) {
+      return NextResponse.json(
+        {
+          error: "Order query schema not saved yet. Please open your Playerok Sales page (Мои продажи) in Chrome, then click [Sync Cookies] in the extension widget.",
+        },
+        { status: 400 }
+      )
+    }
+
+    let parsedVariables: Record<string, unknown> = {}
     if (sessionRows[0]?.ordersVariables) {
       try {
         parsedVariables = JSON.parse(sessionRows[0].ordersVariables)
@@ -134,15 +143,13 @@ export async function POST(request: NextRequest) {
         "Cookie": cookieString,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         "Origin": "https://playerok.com",
+        "Referer": "https://playerok.com/",
         "apollo-require-preflight": "true",
         "apollographql-client-name": "web",
       },
       body: JSON.stringify({
         query,
-        variables: {
-          ...parsedVariables,
-          after: null,
-        },
+        variables: parsedVariables,
       }),
     })
 
@@ -162,7 +169,7 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     if (data.errors && data.errors.length > 0) {
       const msg = data.errors.map((e: { message?: string }) => e.message).join("; ")
-      return NextResponse.json({ error: msg }, { status: 400 })
+      return NextResponse.json({ error: `Playerok returned: ${msg}. Open your Playerok Sales page and click [Sync Cookies] in the extension to refresh the query template.` }, { status: 400 })
     }
 
     // 3. Extract deals

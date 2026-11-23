@@ -367,7 +367,12 @@ async function syncPlayerokCookiesToLedger(ordersQuery, ordersVariables) {
     }
 
     const data = await res.json();
-    return { success: true, count: cookies.length, updatedAt: data.updatedAt };
+    return {
+      success: true,
+      count: cookies.length,
+      hasOrdersQuery: Boolean(ordersQuery && ordersQuery.trim()),
+      updatedAt: data.updatedAt
+    };
   } catch (err) {
     return { error: err.message || 'Failed to sync cookies to Ledger.' };
   }
