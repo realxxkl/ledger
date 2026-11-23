@@ -86,6 +86,69 @@ const DEFAULT_DEALS_QUERY = `
   }
 `
 
+function findPageInfo(obj: any): { hasNextPage: boolean; cursor: string | null } | null {
+  if (!obj || typeof obj !== "object") return null
+  if (obj.pageInfo && typeof obj.pageInfo === "object") {
+    const rows = obj.edges || obj.nodes || obj.items
+    const lastEdge = Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
+    const cursor = obj.pageInfo.endCursor || obj.pageInfo.nextCursor || obj.pageInfo.cursor || lastEdge?.cursor || null
+    return {
+      hasNextPage: Boolean(obj.pageInfo.hasNextPage || obj.pageInfo.hasMore),
+      cursor: cursor ? String(cursor).trim() : null,
+    }
+  }
+  for (const child of Object.values(obj)) {
+    const found = findPageInfo(child)
+    if (found) return found
+  }
+  return null
+}
+
+function setNextCursor(vars: Record<string, unknown>, cursor: string, queryStr = ""): Record<string, unknown> {
+  const next = JSON.parse(JSON.stringify(vars))
+
+  const header = queryStr.match(/\b(?:query|mutation|subscription)\b[\s\S]*?\(([^)]*)\)/)
+  const declared = header
+    ? Array.from(header[1].matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*:/g), (m) => m[1])
+    : []
+  const topLevel = [...declared, ...Object.keys(next)].find(
+    (name) => /after|cursor/i.test(name) && Object.hasOwn(next, name)
+  )
+
+  if (topLevel) {
+    next[topLevel] = cursor
+    return next
+  }
+
+  if (next.pagination && typeof next.pagination === "object" && !Array.isArray(next.pagination)) {
+    const p = next.pagination as Record<string, unknown>
+    if ("cursor" in p) {
+      p.cursor = cursor
+    } else {
+      p.after = cursor
+    }
+    return next
+  }
+
+  function findAndSet(target: any): boolean {
+    if (!target || typeof target !== "object" || Array.isArray(target)) return false
+    for (const key of Object.keys(target)) {
+      if (/^(after|cursor)$/i.test(key)) {
+        target[key] = cursor
+        return true
+      }
+      if (findAndSet(target[key])) return true
+    }
+    return false
+  }
+
+  if (!findAndSet(next)) {
+    next.after = cursor
+  }
+
+  return next
+}
+
 function extractOperationName(queryStr: string): string | null {
   const match = queryStr.match(/\b(?:query|mutation)\s+([A-Za-z0-9_]+)/i)
   return match ? match[1] : null
@@ -228,36 +291,6 @@ export async function POST(request: NextRequest) {
       requestHeaders["x-gql-op"] = operationName
     }
 
-    const graphqlUrl = "https://playerok.com/graphql"
-    const response = await fetch(graphqlUrl, {
-      method: "POST",
-      headers: requestHeaders,
-      body: JSON.stringify({
-        ...(operationName ? { operationName } : {}),
-        query: cleanQuery,
-        variables: parsedVariables,
-      }),
-    })
-
-    if (!response.ok) {
-      let errDetail = `HTTP ${response.status}`
-      if (response.status === 403) {
-        errDetail = "Cloudflare blocked the server request (403) or cookies expired. Click [Sync Cookies] in the extension."
-      } else {
-        try {
-          const text = await response.text()
-          errDetail = text.slice(0, 200)
-        } catch {}
-      }
-      return NextResponse.json({ error: errDetail }, { status: response.status >= 500 ? 502 : 400 })
-    }
-
-    const data = await response.json()
-    if (data.errors && data.errors.length > 0) {
-      const msg = data.errors.map((e: { message?: string }) => e.message).join("; ")
-      return NextResponse.json({ error: `Playerok returned: ${msg}. Open your Playerok Sales page and click [Sync Cookies] in the extension to refresh the query template.` }, { status: 400 })
-    }
-
     // 3. Extract deals
     const savedPresets = await db.select({ name: presets.name, cost: presets.cost }).from(presets)
     let accepted = 0
@@ -298,7 +331,68 @@ export async function POST(request: NextRequest) {
 
       Object.values(val).forEach(findDeals)
     }
-    findDeals(data?.data ?? data)
+
+    const graphqlUrl = "https://playerok.com/graphql"
+    let currentVariables = { ...parsedVariables }
+    let pageCount = 0
+    const maxPages = 10
+    const seenCursors = new Set<string>()
+    let lastResponseData: any = null
+
+    while (pageCount < maxPages) {
+      pageCount++
+      const response = await fetch(graphqlUrl, {
+        method: "POST",
+        headers: requestHeaders,
+        body: JSON.stringify({
+          ...(operationName ? { operationName } : {}),
+          query: cleanQuery,
+          variables: currentVariables,
+        }),
+      })
+
+      if (!response.ok) {
+        if (pageCount === 1) {
+          let errDetail = `HTTP ${response.status}`
+          if (response.status === 403) {
+            errDetail = "Cloudflare blocked the server request (403) or cookies expired. Click [Sync Cookies] in the extension."
+          } else {
+            try {
+              const text = await response.text()
+              errDetail = text.slice(0, 200)
+            } catch {}
+          }
+          return NextResponse.json({ error: errDetail }, { status: response.status >= 500 ? 502 : 400 })
+        }
+        break
+      }
+
+      const data = await response.json()
+      lastResponseData = data
+      if (data.errors && data.errors.length > 0) {
+        if (pageCount === 1) {
+          const msg = data.errors.map((e: { message?: string }) => e.message).join("; ")
+          return NextResponse.json({ error: `Playerok returned: ${msg}. Open your Playerok Sales page and click [Sync Cookies] in the extension to refresh the query template.` }, { status: 400 })
+        }
+        break
+      }
+
+      const prevCount = nodes.length
+      findDeals(data?.data ?? data)
+
+      const pageInfo = findPageInfo(data?.data ?? data)
+      if (!pageInfo?.hasNextPage || !pageInfo.cursor || seenCursors.has(pageInfo.cursor)) {
+        break
+      }
+
+      if (nodes.length === prevCount && pageCount > 1) {
+        break
+      }
+
+      seenCursors.add(pageInfo.cursor)
+      currentVariables = setNextCursor(currentVariables, pageInfo.cursor, cleanQuery)
+      await new Promise((r) => setTimeout(r, 100))
+    }
 
     for (const deal of nodes) {
       const orderId = String(deal.id || "").trim()
@@ -380,7 +474,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const debugSnippet = JSON.stringify(data).slice(0, 160)
+    const debugSnippet = JSON.stringify(lastResponseData || {}).slice(0, 160)
 
     return NextResponse.json({
       success: true,
