@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { botSettings, entries } from "@/lib/db/schema"
+import { botSettings, entries, epicOrderSessions } from "@/lib/db/schema"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
+import { hasUsableEpicSession } from "@/lib/epic-sessions"
 import {
   isFulfilledOrCompletedStatus,
   isValidCardLast4,
@@ -204,7 +205,25 @@ export async function PATCH(req: NextRequest) {
       if (orderStatus !== undefined) {
         const trimmedStatus = String(orderStatus).trim()
         if (trimmedStatus === "READY_FOR_TOPUP") {
-          const resolvedEpicUsername = hasEpicUsername ? parsedEpicUsername : current[0].epicUsername
+          const epicSessionRows = await tx
+            .select({
+              accountId: epicOrderSessions.accountId,
+              displayName: epicOrderSessions.displayName,
+              accessToken: epicOrderSessions.accessToken,
+              refreshToken: epicOrderSessions.refreshToken,
+              deviceAuthId: epicOrderSessions.deviceAuthId,
+              deviceAuthSecret: epicOrderSessions.deviceAuthSecret,
+            })
+            .from(epicOrderSessions)
+            .where(eq(epicOrderSessions.orderId, id))
+            .limit(1)
+          const epicSession = epicSessionRows[0]
+          const canAutoGenerateLink = hasUsableEpicSession(epicSession)
+
+          const resolvedEpicUsername =
+            (hasEpicUsername ? parsedEpicUsername : current[0].epicUsername)?.trim() ||
+            epicSession?.displayName?.trim() ||
+            null
           const resolvedCardLast4 = hasCardLast4 ? parsedCardLast4 : current[0].cardLast4
           const resolvedGameLoginLink = hasGameLoginLink ? parsedGameLoginLink : current[0].gameLoginLink
           const resolvedVbucksAmount = hasVbucksAmount
@@ -212,9 +231,17 @@ export async function PATCH(req: NextRequest) {
             : (current[0].vbucksAmount ?? parseVbucksAmount(current[0].service))
 
           const missing: string[] = []
-          if (!resolvedEpicUsername?.trim()) missing.push("Epic username is required")
-          if (!resolvedCardLast4 || !isValidCardLast4(resolvedCardLast4)) missing.push("Card last 4 digits must be exactly 4 digits")
-          if (!resolvedGameLoginLink || !isValidGameLoginLink(resolvedGameLoginLink)) missing.push("Valid Epic game login link (http/https) is required")
+          if (!resolvedEpicUsername) missing.push("Epic username is required")
+          if (!resolvedCardLast4 || !isValidCardLast4(resolvedCardLast4)) {
+            missing.push("Card last 4 digits must be exactly 4 digits")
+          }
+          if (resolvedGameLoginLink) {
+            if (!isValidGameLoginLink(resolvedGameLoginLink)) {
+              missing.push("Valid Epic game login link (http/https) is required")
+            }
+          } else if (!canAutoGenerateLink) {
+            missing.push("Valid Epic game login link (http/https) is required (or connect an Epic session)")
+          }
           if (!resolvedVbucksAmount || !Number.isSafeInteger(resolvedVbucksAmount) || resolvedVbucksAmount <= 0) {
             missing.push("Positive V-Bucks amount is required")
           }
@@ -223,9 +250,9 @@ export async function PATCH(req: NextRequest) {
           }
 
           updates.orderStatus = "READY_FOR_TOPUP"
-          updates.epicUsername = resolvedEpicUsername!.trim()
+          updates.epicUsername = resolvedEpicUsername!
           updates.cardLast4 = resolvedCardLast4!
-          updates.gameLoginLink = resolvedGameLoginLink!
+          updates.gameLoginLink = resolvedGameLoginLink ?? null
           updates.vbucksAmount = resolvedVbucksAmount!
           updates.errorReason = null
           updates.errorImageUrl = null

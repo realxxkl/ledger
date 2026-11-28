@@ -8,16 +8,27 @@ type RefreshedEpicSession = {
   expiresIn?: number
 }
 
+export class EpicRefreshError extends Error {
+  constructor(message: string, readonly isAuthFailure: boolean) {
+    super(message)
+    this.name = "EpicRefreshError"
+  }
+}
+
+type DeviceAuthResult =
+  | { ok: true; access_token: string; refresh_token?: string; expires_in?: number }
+  | { ok: false; isAuthFailure: boolean; message: string }
+
 /**
  * Get a fresh access token using device auth credentials (persistent, never expire).
- * Returns null if device auth is not set up for this session.
+ * Returns a failure object if device auth is rejected or unreachable.
  */
 async function refreshViaDeviceAuth(
   accountId: string,
   deviceAuthId: string,
   deviceAuthSecret: string,
   basicToken: string,
-): Promise<{ access_token: string; refresh_token?: string; expires_in?: number } | null> {
+): Promise<DeviceAuthResult> {
   try {
     const response = await fetch(`${OAUTH_BASE}/token`, {
       method: "POST",
@@ -45,17 +56,27 @@ async function refreshViaDeviceAuth(
         errorCode: data.errorCode,
         errorMessage: data.errorMessage,
       })
-      return null
+      const isAuthFailure = response.status === 400 || response.status === 401 || response.status === 403
+      const message =
+        (typeof data.errorMessage === "string" && data.errorMessage) ||
+        (typeof data.error === "string" && data.error) ||
+        `Epic device auth failed with HTTP ${response.status}`
+      return { ok: false, isAuthFailure, message }
     }
     console.log(`[Epic] Device auth login succeeded for ${accountId}, expires_in=${data.expires_in}`)
     return {
+      ok: true,
       access_token: data.access_token as string,
       refresh_token: data.refresh_token as string | undefined,
       expires_in: data.expires_in as number | undefined,
     }
   } catch (error) {
     console.error(`[Epic] Device auth login error for ${accountId}:`, error)
-    return null
+    return {
+      ok: false,
+      isAuthFailure: false,
+      message: error instanceof Error ? error.message : "Device auth network error",
+    }
   }
 }
 
@@ -84,7 +105,10 @@ export async function refreshEpicSession(
         expiresIn: Math.floor((latest.expiresAt.getTime() - Date.now()) / 1000),
       }
     }
-    throw new Error("Epic refresh is already in progress and no renewed access token is available yet")
+    throw new EpicRefreshError(
+      "Epic refresh is already in progress and no renewed access token is available yet",
+      false,
+    )
   }
 
   try {
@@ -106,10 +130,11 @@ export async function refreshEpicSession(
     }
 
     const basicToken = process.env.EPIC_BASIC_TOKEN
-    if (!basicToken) throw new Error("EPIC_BASIC_TOKEN is not configured")
+    if (!basicToken) throw new EpicRefreshError("EPIC_BASIC_TOKEN is not configured", false)
 
     // ── Strategy 1: Device Auth (preferred — credentials never expire) ──
     const fullSession = await getEpicSession(orderId)
+    let deviceAuthFailure: { isAuthFailure: boolean; message: string } | null = null
     if (fullSession?.deviceAuthId && fullSession?.deviceAuthSecret && fullSession?.accountId) {
       console.log(`[Epic] Order ${orderId}: using device auth for refresh`)
       const deviceResult = await refreshViaDeviceAuth(
@@ -118,7 +143,7 @@ export async function refreshEpicSession(
         fullSession.deviceAuthSecret,
         basicToken,
       )
-      if (deviceResult) {
+      if (deviceResult.ok) {
         const nextRefreshToken = deviceResult.refresh_token || refreshToken || ""
         await updateEpicSessionTokens(orderId, leaseId, {
           accessToken: deviceResult.access_token,
@@ -131,11 +156,17 @@ export async function refreshEpicSession(
           expiresIn: deviceResult.expires_in,
         }
       }
+      deviceAuthFailure = deviceResult
       console.warn(`[Epic] Order ${orderId}: device auth failed, falling back to refresh token`)
     }
 
     // ── Strategy 2: Refresh Token (legacy fallback) ──
-    if (!refreshToken) throw new Error("No Epic refresh token or device auth credentials stored for this order")
+    if (!refreshToken) {
+      if (deviceAuthFailure) {
+        throw new EpicRefreshError(deviceAuthFailure.message, deviceAuthFailure.isAuthFailure)
+      }
+      throw new EpicRefreshError("No Epic refresh token or device auth credentials stored for this order", true)
+    }
 
     const response = await fetch(`${OAUTH_BASE}/token`, {
       method: "POST",
@@ -150,7 +181,11 @@ export async function refreshEpicSession(
     }
     if (!response.ok || !data.access_token) {
       console.error(`[Epic] Refresh rejected for order ${orderId}`, { status: response.status, error: data.error, errorCode: data.errorCode })
-      throw new Error(data.errorMessage || data.error || `Epic refresh failed with HTTP ${response.status}`)
+      const isAuthFailure = response.status === 400 || response.status === 401 || response.status === 403
+      throw new EpicRefreshError(
+        data.errorMessage || data.error || `Epic refresh failed with HTTP ${response.status}`,
+        isAuthFailure,
+      )
     }
 
     const nextRefreshToken = data.refresh_token || refreshToken

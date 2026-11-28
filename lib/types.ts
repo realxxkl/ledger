@@ -74,6 +74,7 @@ export type LedgerData = {
     accountId?: string
     refreshTokenStored?: boolean
     accessTokenStored?: boolean
+    deviceAuthStored?: boolean
     tokenUpdatedAt?: string
     tokenExpiresAt?: string
     authLink?: string

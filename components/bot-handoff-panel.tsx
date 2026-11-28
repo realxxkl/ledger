@@ -118,7 +118,7 @@ export function BotHandoffPanel({
       const link = buildFortniteLoginLink(data.code)
       dirtyFieldsRef.current.add("gameLoginLink")
       setGameLoginLink(link)
-      setNotice("Fresh Fortnite login link generated. Click Save Fields or Send to Bot.")
+      setNotice("Fresh Fortnite login link generated (Send to Bot also auto-generates a fresh link when next in turn).")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not generate Fortnite login link")
     } finally {
@@ -206,7 +206,12 @@ export function BotHandoffPanel({
       setError("Card last 4 digits must be exactly 4 digits.")
       return
     }
-    if (!isValidGameLoginLink(trimmedLink)) {
+    if (trimmedLink) {
+      if (!isValidGameLoginLink(trimmedLink)) {
+        setError("Game login link must be a valid http(s) URL.")
+        return
+      }
+    } else if (!hasEpicSession) {
       setError("Valid Epic game login link (http/https) is required.")
       return
     }
@@ -234,7 +239,7 @@ export function BotHandoffPanel({
           id: Number(order.id),
           epicUsername: trimmedUsername,
           cardLast4: trimmedCard,
-          gameLoginLink: trimmedLink,
+          gameLoginLink: trimmedLink || null,
           vbucksAmount: parsedVbucks,
           packCombination: packResult.value,
           orderStatus: "READY_FOR_TOPUP",
@@ -246,10 +251,11 @@ export function BotHandoffPanel({
         throw new Error(data?.error || "Could not queue order for bot")
       }
       dirtyFieldsRef.current.clear()
+      const linkSuffix = hasEpicSession ? " Fresh login link will generate when next in turn." : ""
       setNotice(
         isMismatch || isEscalation
-          ? "Queued for bot (READY_FOR_TOPUP) and unlocked bot queue."
-          : "Queued for bot (READY_FOR_TOPUP).",
+          ? `Queued for bot (READY_FOR_TOPUP) and unlocked bot queue.${linkSuffix}`
+          : `Queued for bot (READY_FOR_TOPUP).${linkSuffix}`,
       )
       await onChange()
     } catch (err) {
@@ -472,7 +478,7 @@ export function BotHandoffPanel({
         </label>
 
         <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground sm:col-span-2 lg:col-span-1">
-          Game Login Link
+          {hasEpicSession ? "Game Login Link (auto on turn)" : "Game Login Link"}
           <div className="flex gap-1.5">
             <input
               type="url"
@@ -482,7 +488,11 @@ export function BotHandoffPanel({
                 markDirty("gameLoginLink")
                 setGameLoginLink(event.target.value)
               }}
-              placeholder="https://www.epicgames.com/id/exchange?..."
+              placeholder={
+                hasEpicSession
+                  ? "Auto-generated when next in queue"
+                  : "https://www.epicgames.com/id/exchange?..."
+              }
               className="h-9 min-w-0 flex-1 border-2 border-border bg-card px-2.5 text-xs font-bold text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary disabled:opacity-60"
             />
             {hasEpicSession && (

@@ -2,8 +2,10 @@ import { type NextRequest, NextResponse } from "next/server"
 import { eq } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { entries } from "@/lib/db/schema"
-import { ensureBotSchema } from "@/lib/db/ensure-bot-schema"
+import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { requireBotAuth } from "@/lib/bot-auth"
+import { getEpicSession, hasUsableEpicSession } from "@/lib/epic-sessions"
+import { EpicExchangeError, generateFreshFortniteLoginLink } from "@/lib/epic-exchange"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -16,7 +18,7 @@ export async function GET(
   if (authError) return authError
 
   try {
-    await ensureBotSchema()
+    await ensureOrderTrackingSchema()
     const { id: rawId } = await params
     const orderId = Number(rawId)
     if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -24,17 +26,51 @@ export async function GET(
     }
 
     const rows = await db
-      .select({ id: entries.id, gameLoginLink: entries.gameLoginLink })
+      .select({
+        id: entries.id,
+        orderStatus: entries.orderStatus,
+        gameLoginLink: entries.gameLoginLink,
+      })
       .from(entries)
       .where(eq(entries.id, orderId))
       .limit(1)
 
-    if (!rows[0]) {
+    const row = rows[0]
+    if (!row) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 })
     }
 
+    const forceRefresh =
+      request.nextUrl.searchParams.get("refresh") === "1" ||
+      request.nextUrl.searchParams.get("fresh") === "true"
+
+    if (row.orderStatus === "BOT_PROCESSING" || forceRefresh) {
+      const epicSession = await getEpicSession(orderId)
+      if (hasUsableEpicSession(epicSession)) {
+        try {
+          const generated = await generateFreshFortniteLoginLink(orderId)
+          return NextResponse.json({
+            game_login_link: generated.link,
+            fresh: true,
+          })
+        } catch (err) {
+          if (err instanceof EpicExchangeError) {
+            return NextResponse.json(
+              {
+                error: err.message,
+                ...(err.options.requiresReauthentication ? { requires_reauthentication: true } : {}),
+              },
+              { status: err.status },
+            )
+          }
+          throw err
+        }
+      }
+    }
+
     return NextResponse.json({
-      game_login_link: rows[0].gameLoginLink ?? null,
+      game_login_link: row.gameLoginLink ?? null,
+      fresh: false,
     })
   } catch (err) {
     console.error("[Bot] GET /api/bot/orders/[id]/link failed:", err)

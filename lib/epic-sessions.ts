@@ -100,6 +100,26 @@ export async function getEpicSession(orderId: number) {
   return rows[0] ?? null
 }
 
+export function hasUsableEpicSession(
+  session:
+    | {
+        accountId?: string | null
+        accessToken?: string | null
+        refreshToken?: string | null
+        deviceAuthId?: string | null
+        deviceAuthSecret?: string | null
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!session) return false
+  return Boolean(
+    session.accessToken ||
+      session.refreshToken ||
+      (session.deviceAuthId && session.deviceAuthSecret && session.accountId),
+  )
+}
+
 export async function getEpicSessionSummary(orderId: number) {
   const session = await getEpicSession(orderId)
   if (!session) return null

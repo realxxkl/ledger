@@ -26,7 +26,7 @@ export async function getLedger() {
     db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt)),
     db.select().from(feeConfig),
     presetRows.length === 0 ? db.select().from(presets) : Promise.resolve(presetRows),
-    db.select({ orderId: epicOrderSessions.orderId, displayName: epicOrderSessions.displayName, accountId: epicOrderSessions.accountId, authLink: epicOrderSessions.authLink, authLinkExpiresAt: epicOrderSessions.authLinkExpiresAt, authUserCode: epicOrderSessions.authUserCode, refreshToken: epicOrderSessions.refreshToken, accessToken: epicOrderSessions.accessToken, updatedAt: epicOrderSessions.updatedAt, expiresAt: epicOrderSessions.expiresAt }).from(epicOrderSessions),
+    db.select({ orderId: epicOrderSessions.orderId, displayName: epicOrderSessions.displayName, accountId: epicOrderSessions.accountId, authLink: epicOrderSessions.authLink, authLinkExpiresAt: epicOrderSessions.authLinkExpiresAt, authUserCode: epicOrderSessions.authUserCode, refreshToken: epicOrderSessions.refreshToken, accessToken: epicOrderSessions.accessToken, deviceAuthId: epicOrderSessions.deviceAuthId, deviceAuthSecret: epicOrderSessions.deviceAuthSecret, updatedAt: epicOrderSessions.updatedAt, expiresAt: epicOrderSessions.expiresAt }).from(epicOrderSessions),
     db.select().from(botSettings).where(eq(botSettings.id, 1)).limit(1),
   ])
   const botSettingsRow = botSettingsRows[0]
@@ -90,6 +90,7 @@ export async function getLedger() {
       authUserCode: session.authUserCode || undefined,
       refreshTokenStored: Boolean(session.refreshToken),
       accessTokenStored: Boolean(session.accessToken),
+      deviceAuthStored: Boolean(session.deviceAuthId && session.deviceAuthSecret && session.accountId),
       tokenUpdatedAt: session.updatedAt?.toISOString(),
       tokenExpiresAt: session.expiresAt?.toISOString(),
     })),

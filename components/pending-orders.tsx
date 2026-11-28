@@ -262,6 +262,7 @@ export function PendingOrders({
     accountId?: string
     refreshTokenStored?: boolean
     accessTokenStored?: boolean
+    deviceAuthStored?: boolean
     tokenUpdatedAt?: string
     tokenExpiresAt?: string
     authLink?: string
@@ -1307,7 +1308,11 @@ export function PendingOrders({
                       epicDisplayName={epicAccounts[Number(order.id)]}
                       hasEpicSession={Boolean(
                         epicAccounts[Number(order.id)] ||
-                          epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored),
+                          epicSessions?.some(
+                            (session) =>
+                              session.orderId === order.id &&
+                              (session.accessTokenStored || session.refreshTokenStored || session.deviceAuthStored),
+                          ),
                       )}
                       onChange={onChange}
                     />
