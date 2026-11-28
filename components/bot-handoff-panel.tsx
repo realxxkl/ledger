@@ -238,6 +238,7 @@ export function BotHandoffPanel({
           vbucksAmount: parsedVbucks,
           packCombination: packResult.value,
           orderStatus: "READY_FOR_TOPUP",
+          unlockQueue: isMismatch || isEscalation,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -245,7 +246,11 @@ export function BotHandoffPanel({
         throw new Error(data?.error || "Could not queue order for bot")
       }
       dirtyFieldsRef.current.clear()
-      setNotice("Queued for bot (READY_FOR_TOPUP).")
+      setNotice(
+        isMismatch || isEscalation
+          ? "Queued for bot (READY_FOR_TOPUP) and unlocked bot queue."
+          : "Queued for bot (READY_FOR_TOPUP).",
+      )
       await onChange()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not queue order for bot")
@@ -290,6 +295,7 @@ export function BotHandoffPanel({
     setBusyAction(action)
     setError("")
     setNotice("")
+    const shouldUnlock = isEscalation || (isMismatch && targetStatus === "READY_FOR_TOPUP")
     try {
       const response = await fetch("/api/entries", {
         method: "PATCH",
@@ -298,6 +304,7 @@ export function BotHandoffPanel({
           id: Number(order.id),
           orderStatus: targetStatus,
           clearError: true,
+          unlockQueue: shouldUnlock,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -307,10 +314,14 @@ export function BotHandoffPanel({
       dirtyFieldsRef.current.clear()
       setNotice(
         targetStatus === "READY_FOR_TOPUP"
-          ? "Returned to Ready for Top-Up (READY_FOR_TOPUP)."
-          : hasEpicSession
-            ? "Reset to Authenticated."
-            : "Reset to In Progress.",
+          ? shouldUnlock
+            ? "Returned to Ready for Top-Up and unlocked bot queue."
+            : "Returned to Ready for Top-Up (READY_FOR_TOPUP)."
+          : isEscalation
+            ? "Escalation acknowledged and bot queue unlocked."
+            : hasEpicSession
+              ? "Reset to Authenticated."
+              : "Reset to In Progress.",
       )
       await onChange()
     } catch (err) {
@@ -372,6 +383,11 @@ export function BotHandoffPanel({
             </p>
             {order.errorReason && (
               <p className="mt-1 text-xs font-bold text-foreground">{order.errorReason}</p>
+            )}
+            {isEscalation && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Clicking Re-send to Bot or Acknowledge &amp; Unlock will automatically clear the global bot queue lock.
+              </p>
             )}
           </div>
           {order.errorImageUrl && (
@@ -537,7 +553,11 @@ export function BotHandoffPanel({
             type="button"
             disabled={busyAction !== null}
             onClick={() => handleResetStatus("In Progress", "reset")}
-            className="inline-flex items-center gap-1.5 border-2 border-border bg-background px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            className={`inline-flex items-center gap-1.5 border-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              isEscalation
+                ? "border-primary bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground"
+                : "border-border bg-background text-foreground hover:border-primary hover:text-primary"
+            }`}
           >
             {busyAction === "reset" ? (
               <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -545,10 +565,14 @@ export function BotHandoffPanel({
               <RotateCcw className="size-3" aria-hidden="true" />
             )}
             {busyAction === "reset"
-              ? "Resetting…"
-              : hasEpicSession
-                ? "Reset to Authenticated"
-                : "Reset to In Progress"}
+              ? isEscalation
+                ? "Acknowledging…"
+                : "Resetting…"
+              : isEscalation
+                ? "Acknowledge & Unlock"
+                : hasEpicSession
+                  ? "Reset to Authenticated"
+                  : "Reset to In Progress"}
           </button>
         )}
 

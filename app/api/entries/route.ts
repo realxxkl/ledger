@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
-import { entries } from "@/lib/db/schema"
+import { botSettings, entries } from "@/lib/db/schema"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import {
   isFulfilledOrCompletedStatus,
@@ -117,6 +117,7 @@ export async function PATCH(req: NextRequest) {
     const hasGameLoginLink = Object.prototype.hasOwnProperty.call(b ?? {}, "gameLoginLink")
     const hasErrorReason = Object.prototype.hasOwnProperty.call(b ?? {}, "errorReason")
     const hasClearError = b?.clearError === true
+    const hasUnlockQueue = b?.unlockQueue === true
 
     if (!Number.isInteger(id) || id <= 0) {
       return NextResponse.json({ error: "Missing or invalid entry id" }, { status: 400 })
@@ -133,7 +134,8 @@ export async function PATCH(req: NextRequest) {
       !hasCardLast4 &&
       !hasGameLoginLink &&
       !hasErrorReason &&
-      !hasClearError
+      !hasClearError &&
+      !hasUnlockQueue
     ) {
       return NextResponse.json({ error: "No order fields to update" }, { status: 400 })
     }
@@ -164,10 +166,11 @@ export async function PATCH(req: NextRequest) {
 
     await ensureOrderTrackingSchema()
 
-    await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
       const current = await tx
         .select({
           service: entries.service,
+          orderStatus: entries.orderStatus,
           orderAmount: entries.orderAmount,
           orderCost: entries.orderCost,
           orderFee: entries.orderFee,
@@ -242,9 +245,34 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
-      await tx.update(entries).set(updates).where(eq(entries.id, id))
+      if (Object.keys(updates).length > 0) {
+        await tx.update(entries).set(updates).where(eq(entries.id, id))
+      }
+
+      const nextStatus = updates.orderStatus ?? current[0].orderStatus ?? null
+      const shouldUnlockQueue =
+        hasUnlockQueue ||
+        ((current[0].orderStatus === "HOLD_ESCALATION" ||
+          current[0].orderStatus === "USERNAME_MISMATCH") &&
+          nextStatus === "READY_FOR_TOPUP") ||
+        (current[0].orderStatus === "HOLD_ESCALATION" && nextStatus !== "HOLD_ESCALATION")
+
+      if (shouldUnlockQueue) {
+        await tx
+          .update(botSettings)
+          .set({
+            botQueueLocked: false,
+            botLockReason: null,
+            botLockErrorImageUrl: null,
+            botLockOrderId: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(botSettings.id, 1))
+      }
+
+      return { queueUnlocked: shouldUnlockQueue }
     })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, queueUnlocked: result.queueUnlocked })
   } catch (err) {
     if (err instanceof HttpError) {
       return NextResponse.json({ error: err.message }, { status: err.status })

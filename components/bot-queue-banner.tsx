@@ -127,7 +127,7 @@ export function BotQueueBanner({
               ) : (
                 <Unlock className="size-4" aria-hidden="true" />
               )}
-              {updating ? "Unlocking…" : "Unlock Queue"}
+              {updating ? "Unlocking…" : "Unlock Bot Queue"}
             </button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { LoaderCircle, Unlock } from "lucide-react"
 import { useLedger } from "@/lib/use-ledger"
 import type { DateRange } from "@/lib/types"
 import { filterByRange } from "@/lib/types"
@@ -33,6 +34,8 @@ export default function Page() {
   const [range, setRange] = useState<DateRange>({ from: "", to: "" })
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [focusMonth, setFocusMonth] = useState<string | null>(null)
+  const [unlockingQueue, setUnlockingQueue] = useState(false)
+  const [unlockQueueError, setUnlockQueueError] = useState("")
 
   // Default the report timeframe to the current day. Done on the client after
   // mount so the range reflects the user's local date (and avoids an SSR
@@ -47,6 +50,28 @@ export default function Page() {
 
   const salesRef = useRef<HTMLDivElement>(null)
   const refresh = () => mutate()
+
+  async function handleUnlockBotQueue() {
+    if (unlockingQueue) return
+    setUnlockingQueue(true)
+    setUnlockQueueError("")
+    try {
+      const response = await fetch("/api/bot-queue", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: false }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not unlock bot queue")
+      }
+      await refresh()
+    } catch (err) {
+      setUnlockQueueError(err instanceof Error ? err.message : "Could not unlock bot queue")
+    } finally {
+      setUnlockingQueue(false)
+    }
+  }
 
   const platforms = useMemo(() => {
     if (!data) return []
@@ -138,6 +163,21 @@ export default function Page() {
             </div>
             <div className="flex flex-col items-start gap-3 sm:items-end">
               <div className="flex flex-wrap gap-2">
+                {data?.botQueue?.locked && (
+                  <button
+                    type="button"
+                    disabled={unlockingQueue}
+                    onClick={handleUnlockBotQueue}
+                    className="inline-flex items-center gap-1.5 border-2 border-destructive bg-destructive px-4 py-2 text-xs font-black uppercase tracking-wider text-destructive-foreground transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {unlockingQueue ? (
+                      <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    ) : (
+                      <Unlock className="size-3.5" aria-hidden="true" />
+                    )}
+                    {unlockingQueue ? "Unlocking…" : "Unlock Bot Queue"}
+                  </button>
+                )}
                 <button
                   onClick={() => setTab("settings")}
                   className="border-2 border-border px-4 py-2 text-xs font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary"
@@ -156,6 +196,11 @@ export default function Page() {
                 </button>
                 <SignOutButton />
               </div>
+              {unlockQueueError && (
+                <p role="alert" className="text-xs font-bold text-destructive">
+                  {unlockQueueError}
+                </p>
+              )}
               <p className="text-xs uppercase tracking-wider text-muted-foreground" suppressHydrationWarning>
                 {stamp ? `${stamp.date} — ${stamp.time}` : "\u00A0"}
               </p>
