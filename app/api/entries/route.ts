@@ -116,6 +116,7 @@ export async function PATCH(req: NextRequest) {
     const hasCardLast4 = Object.prototype.hasOwnProperty.call(b ?? {}, "cardLast4")
     const hasGameLoginLink = Object.prototype.hasOwnProperty.call(b ?? {}, "gameLoginLink")
     const hasErrorReason = Object.prototype.hasOwnProperty.call(b ?? {}, "errorReason")
+    const hasClearError = b?.clearError === true
 
     if (!Number.isInteger(id) || id <= 0) {
       return NextResponse.json({ error: "Missing or invalid entry id" }, { status: 400 })
@@ -131,7 +132,8 @@ export async function PATCH(req: NextRequest) {
       !hasPackCombination &&
       !hasCardLast4 &&
       !hasGameLoginLink &&
-      !hasErrorReason
+      !hasErrorReason &&
+      !hasClearError
     ) {
       return NextResponse.json({ error: "No order fields to update" }, { status: 400 })
     }
@@ -191,6 +193,10 @@ export async function PATCH(req: NextRequest) {
       if (hasCardLast4) updates.cardLast4 = parsedCardLast4 ?? null
       if (hasGameLoginLink) updates.gameLoginLink = parsedGameLoginLink ?? null
       if (hasErrorReason) updates.errorReason = parsedErrorReason ?? null
+      if (hasClearError) {
+        updates.errorReason = null
+        updates.errorImageUrl = null
+      }
 
       if (orderStatus !== undefined) {
         const trimmedStatus = String(orderStatus).trim()
@@ -219,6 +225,7 @@ export async function PATCH(req: NextRequest) {
           updates.gameLoginLink = resolvedGameLoginLink!
           updates.vbucksAmount = resolvedVbucksAmount!
           updates.errorReason = null
+          updates.errorImageUrl = null
         } else if (isFulfilledOrCompletedStatus(trimmedStatus)) {
           const orderAmount = Number(current[0].orderAmount ?? 0)
           const orderCost = Number(current[0].orderCost ?? 0)

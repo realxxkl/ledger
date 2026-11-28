@@ -19,6 +19,17 @@ function isAllowedErrorStatus(value: unknown): value is BotErrorStatus {
   return typeof value === "string" && (BOT_ERROR_STATUSES as readonly string[]).includes(value)
 }
 
+function resolveNonLockingStatus(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  if (isAllowedErrorStatus(trimmed)) return trimmed
+  if (trimmed === "In Progress" || trimmed === "AUTHENTICATED" || trimmed === "PREFLIGHT_ERROR") {
+    return "In Progress"
+  }
+  if (trimmed === "READY_FOR_TOPUP") return "READY_FOR_TOPUP"
+  return null
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -116,11 +127,27 @@ export async function POST(
       }
     }
 
-    if (!isAllowedErrorStatus(statusRaw)) {
-      return NextResponse.json(
-        { error: "status must be USERNAME_MISMATCH or HOLD_ESCALATION" },
-        { status: 400 },
-      )
+    const lockQueue = Boolean(lockQueueRaw)
+    let resolvedStatus: string | null = null
+    if (lockQueue) {
+      if (!isAllowedErrorStatus(statusRaw)) {
+        return NextResponse.json(
+          { error: "status must be USERNAME_MISMATCH or HOLD_ESCALATION when lock_queue is true" },
+          { status: 400 },
+        )
+      }
+      resolvedStatus = statusRaw
+    } else {
+      resolvedStatus = resolveNonLockingStatus(statusRaw)
+      if (!resolvedStatus) {
+        return NextResponse.json(
+          {
+            error:
+              "status must be USERNAME_MISMATCH, HOLD_ESCALATION, READY_FOR_TOPUP, In Progress, AUTHENTICATED, or PREFLIGHT_ERROR",
+          },
+          { status: 400 },
+        )
+      }
     }
 
     const errorReason = typeof errorReasonRaw === "string" ? errorReasonRaw.trim() : ""
@@ -149,13 +176,12 @@ export async function POST(
       : null
 
     const errorImageUrl = savedMedia?.url ?? null
-    const lockQueue = Boolean(lockQueueRaw)
 
     await db.transaction(async (tx) => {
       await tx
         .update(entries)
         .set({
-          orderStatus: statusRaw,
+          orderStatus: resolvedStatus,
           errorReason,
           ...(errorImageUrl ? { errorImageUrl } : {}),
         })
@@ -178,7 +204,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       order_id: String(orderId),
-      status: statusRaw,
+      status: resolvedStatus,
       error_reason: errorReason,
       error_image_url: errorImageUrl ?? existing.errorImageUrl ?? null,
       queue_locked: lockQueue,

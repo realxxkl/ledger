@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { AlertTriangle, Bot, Check, KeyRound, LoaderCircle, Save, Send, X } from "lucide-react"
+import { AlertTriangle, Bot, Check, KeyRound, LoaderCircle, RotateCcw, Save, Send, X } from "lucide-react"
 import type { Entry } from "@/lib/types"
 import {
   buildFortniteLoginLink,
@@ -48,7 +48,7 @@ export function BotHandoffPanel({
   const dirtyFieldsRef = useRef<Set<FieldKey>>(new Set())
   const lastOrderIdRef = useRef(order.id)
 
-  const [busyAction, setBusyAction] = useState<"send" | "save" | "unqueue" | "link" | null>(null)
+  const [busyAction, setBusyAction] = useState<"send" | "save" | "unqueue" | "link" | "reset" | "requeue" | null>(null)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [errorPreviewOpen, setErrorPreviewOpen] = useState(false)
@@ -266,6 +266,7 @@ export function BotHandoffPanel({
         body: JSON.stringify({
           id: Number(order.id),
           orderStatus: "In Progress",
+          clearError: true,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -276,6 +277,44 @@ export function BotHandoffPanel({
       await onChange()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove order from queue")
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function handleResetStatus(
+    targetStatus: "In Progress" | "READY_FOR_TOPUP",
+    action: "reset" | "requeue",
+  ) {
+    if (busyAction) return
+    setBusyAction(action)
+    setError("")
+    setNotice("")
+    try {
+      const response = await fetch("/api/entries", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: Number(order.id),
+          orderStatus: targetStatus,
+          clearError: true,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data?.error || "Could not reset order status")
+      }
+      dirtyFieldsRef.current.clear()
+      setNotice(
+        targetStatus === "READY_FOR_TOPUP"
+          ? "Returned to Ready for Top-Up (READY_FOR_TOPUP)."
+          : hasEpicSession
+            ? "Reset to Authenticated."
+            : "Reset to In Progress.",
+      )
+      await onChange()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset order status")
     } finally {
       setBusyAction(null)
     }
@@ -301,6 +340,13 @@ export function BotHandoffPanel({
           </span>
         )}
       </div>
+
+      {isProcessing && (
+        <p className="mb-3 border border-primary/40 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+          Bot claimed this order. If it could not start (for example, phone locked or ADB offline), reset it to{" "}
+          {hasEpicSession ? "Authenticated" : "In Progress"} or return it to Ready for Top-Up without losing saved fields.
+        </p>
+      )}
 
       {(isMismatch || isEscalation || order.errorReason) && (
         <div
@@ -483,6 +529,42 @@ export function BotHandoffPanel({
               <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             )}
             Remove from Queue
+          </button>
+        )}
+
+        {(isProcessing || isMismatch || isEscalation) && (
+          <button
+            type="button"
+            disabled={busyAction !== null}
+            onClick={() => handleResetStatus("In Progress", "reset")}
+            className="inline-flex items-center gap-1.5 border-2 border-border bg-background px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busyAction === "reset" ? (
+              <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <RotateCcw className="size-3" aria-hidden="true" />
+            )}
+            {busyAction === "reset"
+              ? "Resetting…"
+              : hasEpicSession
+                ? "Reset to Authenticated"
+                : "Reset to In Progress"}
+          </button>
+        )}
+
+        {isProcessing && (
+          <button
+            type="button"
+            disabled={busyAction !== null}
+            onClick={() => handleResetStatus("READY_FOR_TOPUP", "requeue")}
+            className="inline-flex items-center gap-1.5 border-2 border-primary bg-primary/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-primary transition-colors hover:bg-primary hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busyAction === "requeue" ? (
+              <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <RotateCcw className="size-3" aria-hidden="true" />
+            )}
+            {busyAction === "requeue" ? "Returning…" : "Back to Ready for Top-Up"}
           </button>
         )}
 
