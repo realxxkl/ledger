@@ -15,6 +15,8 @@ import { SignOutButton } from "@/components/sign-out-button"
 import { PendingOrders } from "@/components/pending-orders"
 import { OffersPanel } from "@/components/offers-panel"
 import { LoadingScreen } from "@/components/loading-screen"
+import { BotQueueBanner } from "@/components/bot-queue-banner"
+import { isFulfilledOrCompletedStatus } from "@/lib/bot-status"
 
 type Tab = "dashboard" | "offers" | "withdrawals" | "settings" | "pending-orders"
 
@@ -59,8 +61,7 @@ export default function Page() {
       ...data,
       entries: data.entries.filter((entry) => {
         if (entry.source !== "playerok") return true
-        const status = (entry.orderStatus ?? "").trim().toLowerCase()
-        return status === "completed" || status === "delivered"
+        return isFulfilledOrCompletedStatus(entry.orderStatus)
       }),
     }
   }, [data])
@@ -187,6 +188,11 @@ export default function Page() {
 
           {data && filtered && (
             <div className="flex flex-col gap-6">
+              <BotQueueBanner
+                botQueue={data.botQueue}
+                entries={data.entries}
+                onChange={refresh}
+              />
               {tab === "dashboard" && (
                 <>
                   <FilterBar

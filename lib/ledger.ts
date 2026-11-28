@@ -1,7 +1,7 @@
 import { db } from "@/lib/db"
-import { entries, withdrawals, feeConfig, presets, epicOrderSessions } from "@/lib/db/schema"
+import { entries, withdrawals, feeConfig, presets, epicOrderSessions, botSettings } from "@/lib/db/schema"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
-import { desc } from "drizzle-orm"
+import { desc, eq } from "drizzle-orm"
 
 const DEFAULT_PRESETS = [
   { name: "800 V-Bucks", cost: "0" },
@@ -21,13 +21,15 @@ export async function getLedger() {
     await db.insert(presets).values(DEFAULT_PRESETS)
   }
 
-  const [entryRows, withdrawalRows, feeRows, finalPresets, epicSessionRows] = await Promise.all([
+  const [entryRows, withdrawalRows, feeRows, finalPresets, epicSessionRows, botSettingsRows] = await Promise.all([
     db.select().from(entries).orderBy(desc(entries.createdAt)),
     db.select().from(withdrawals).orderBy(desc(withdrawals.createdAt)),
     db.select().from(feeConfig),
     presetRows.length === 0 ? db.select().from(presets) : Promise.resolve(presetRows),
     db.select({ orderId: epicOrderSessions.orderId, displayName: epicOrderSessions.displayName, accountId: epicOrderSessions.accountId, authLink: epicOrderSessions.authLink, authLinkExpiresAt: epicOrderSessions.authLinkExpiresAt, authUserCode: epicOrderSessions.authUserCode, refreshToken: epicOrderSessions.refreshToken, accessToken: epicOrderSessions.accessToken, updatedAt: epicOrderSessions.updatedAt, expiresAt: epicOrderSessions.expiresAt }).from(epicOrderSessions),
+    db.select().from(botSettings).where(eq(botSettings.id, 1)).limit(1),
   ])
+  const botSettingsRow = botSettingsRows[0]
 
   const feeConfigObj: Record<string, { name: string; percent: number; flat: number }> = {}
   for (const f of feeRows) {
@@ -56,6 +58,14 @@ export async function getLedger() {
       waitingSince: e.waitingSince || undefined,
       vbucksBefore: e.vbucksBefore ?? undefined,
       vbucksAfter: e.vbucksAfter ?? undefined,
+      epicUsername: e.epicUsername || undefined,
+      vbucksAmount: e.vbucksAmount ?? undefined,
+      packCombination: Array.isArray(e.packCombination) ? e.packCombination : undefined,
+      cardLast4: e.cardLast4 || undefined,
+      gameLoginLink: e.gameLoginLink || undefined,
+      proofImageUrl: e.proofImageUrl || undefined,
+      errorImageUrl: e.errorImageUrl || undefined,
+      errorReason: e.errorReason || undefined,
       orderAmount: num(e.orderAmount),
       orderCost: num(e.orderCost),
       orderFee: num(e.orderFee),
@@ -85,5 +95,12 @@ export async function getLedger() {
       name: p.name,
       cost: num(p.cost),
     })),
+    botQueue: {
+      locked: Boolean(botSettingsRow?.botQueueLocked),
+      reason: botSettingsRow?.botLockReason ?? null,
+      errorImageUrl: botSettingsRow?.botLockErrorImageUrl ?? null,
+      orderId: botSettingsRow?.botLockOrderId != null ? String(botSettingsRow.botLockOrderId) : null,
+      updatedAt: botSettingsRow?.updatedAt?.toISOString() ?? null,
+    },
   }
 }

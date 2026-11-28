@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { entries, presets } from "@/lib/db/schema"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
+import { parseVbucksAmount } from "@/lib/bot-status"
 import { eq } from "drizzle-orm"
 
 export const runtime = "nodejs"
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
       profit: s(profit),
       orderStatus: orderStatusText,
       u7buyOrderId: orderId,
+      vbucksAmount: parseVbucksAmount(productName),
     })
 
     console.log("[v0] U7Buy order synced:", orderId, productName, earned)

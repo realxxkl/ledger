@@ -3,6 +3,7 @@ import { eq, or } from "drizzle-orm"
 import { db } from "@/lib/db"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { entries, presets } from "@/lib/db/schema"
+import { isBotOrderStatus, isFulfilledOrCompletedStatus, parseVbucksAmount } from "@/lib/bot-status"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -189,6 +190,7 @@ export async function POST(request: NextRequest) {
         buyerUsername: buyerUsername || null,
         chatId: chatId || null,
         waitingSince: timestamp.toISOString(),
+        vbucksAmount: parseVbucksAmount(normalizeItemTitle(itemTitle)) ?? parseVbucksAmount(itemTitle),
         originalCurrency: currency === "RUB" ? "RUB" : null,
         exchangeRate: currency === "RUB" ? String(RUB_PER_USD) : null,
       }).onConflictDoNothing({ target: entries.externalOrderId }).returning({ id: entries.id })
@@ -218,9 +220,13 @@ export async function POST(request: NextRequest) {
 
     if (alreadyLogged) {
       const normalizedStatus = (existingStatus ?? "").trim().toLowerCase()
-      const isCompleted = normalizedStatus === "completed" || normalizedStatus === "delivered"
+      const isCompleted = isFulfilledOrCompletedStatus(existingStatus)
       const isExistingRefunded = normalizedStatus === "refunded"
-      const preserveTerminalStatus = isCompleted || isExistingRefunded || normalizedStatus === "cancelled"
+      const preserveTerminalStatus =
+        isCompleted ||
+        isBotOrderStatus(existingStatus) ||
+        isExistingRefunded ||
+        normalizedStatus === "cancelled"
       const nextStatus = isRefunded
         ? "Refunded"
         : preserveTerminalStatus ? existingStatus! : "New Order Received"

@@ -6,9 +6,32 @@ import { Check, LoaderCircle, MessageCircle, PackageCheck, Plus, RefreshCw, Sear
 import type { Entry } from "@/lib/types"
 import { currency, formatWaitingSince } from "@/lib/types"
 import { ConfirmOrderCompletionDialog } from "@/components/confirm-order-completion-dialog"
+import { BotHandoffPanel } from "@/components/bot-handoff-panel"
+import { ProofViewer } from "@/components/proof-viewer"
+import {
+  type BotOrderStatus,
+  isBotOrderStatus,
+  isFulfilledOrCompletedStatus,
+  isTerminalOrderStatus,
+} from "@/lib/bot-status"
 
-const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "refunded"])
-const ORDER_STATUS_OPTIONS = ["In Progress", "Completed", "Refunded"] as const
+const COMPLETED_STATUSES = new Set(["completed", "cancelled", "delivered", "fulfilled", "refunded"])
+const ORDER_STATUS_OPTIONS = [
+  "In Progress",
+  "Bot Queue",
+  "Needs Attention",
+  "Fulfilled",
+  "Completed",
+  "Refunded",
+] as const
+
+const BOT_STATUS_LABELS: Record<BotOrderStatus, string> = {
+  READY_FOR_TOPUP: "Ready for Top-Up",
+  BOT_PROCESSING: "Bot Processing",
+  FULFILLED: "Fulfilled",
+  USERNAME_MISMATCH: "Username Mismatch",
+  HOLD_ESCALATION: "Hold Escalation",
+}
 
 type BuyerPresenceResult = {
   buyerUsername: string
@@ -179,16 +202,22 @@ function formatRemainingTime(milliseconds: number) {
 export function getOrderStatusGroup(status?: string) {
   const normalized = (status ?? "").trim().toLowerCase()
   if (normalized === "refunded") return "Refunded"
-  if (normalized === "completed" || normalized === "delivered") return "Completed"
+  if (isFulfilledOrCompletedStatus(status)) return "Completed"
   return "In Progress"
 }
 
 export function getOrderStatusLabel(status: string | undefined, authenticated: boolean) {
+  if (isBotOrderStatus(status)) return BOT_STATUS_LABELS[status.trim() as BotOrderStatus]
   const group = getOrderStatusGroup(status)
   return group === "In Progress" ? (authenticated ? "Authenticated" : "Unauthenticated") : group
 }
 
 function statusTone(status: string) {
+  if (status === "Ready for Top-Up") return "border-sky-400/60 bg-sky-500/10 text-sky-300"
+  if (status === "Bot Processing") return "border-primary bg-primary/15 text-primary"
+  if (status === "Fulfilled") return "border-positive/60 bg-positive/10 text-positive"
+  if (status === "Username Mismatch") return "border-fee/70 bg-fee/10 text-fee"
+  if (status === "Hold Escalation") return "border-destructive bg-destructive/15 text-destructive"
   if (status === "In Progress" || status === "Unauthenticated" || status === "Authenticated") return "border-primary bg-primary/10 text-primary"
   return "border-border bg-muted/40 text-muted-foreground"
 }
@@ -375,12 +404,28 @@ export function PendingOrders({
   }
 
   const orders = entries.filter((entry) => {
-    if (!entry.u7buyOrderId) return false
+    if (!entry.u7buyOrderId && !isBotOrderStatus(entry.orderStatus)) return false
     if (focusedOrderId) return entry.id === focusedOrderId
-    if ((entry.orderStatus ?? "").trim().toLowerCase() === "cancelled") return false
-    if (getOrderStatusGroup(entry.orderStatus) !== statusFilter) return false
+    const normalizedStatus = (entry.orderStatus ?? "").trim().toLowerCase()
+    if (normalizedStatus === "cancelled") return false
+
+    if (statusFilter === "Bot Queue") {
+      if (entry.orderStatus !== "READY_FOR_TOPUP" && entry.orderStatus !== "BOT_PROCESSING") return false
+    } else if (statusFilter === "Needs Attention") {
+      if (entry.orderStatus !== "USERNAME_MISMATCH" && entry.orderStatus !== "HOLD_ESCALATION") return false
+    } else if (statusFilter === "Fulfilled") {
+      if (entry.orderStatus !== "FULFILLED") return false
+    } else if (getOrderStatusGroup(entry.orderStatus) !== statusFilter) {
+      return false
+    }
+
     const query = search.trim().toLowerCase()
-    return !query || [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus].some((value) => value?.toLowerCase().includes(query))
+    return (
+      !query ||
+      [entry.u7buyOrderId, entry.service, entry.platform, entry.orderStatus, entry.epicUsername].some((value) =>
+        value?.toLowerCase().includes(query),
+      )
+    )
   }).sort((a, b) => {
     const aWaitingTime = Date.parse(a.waitingSince ?? a.date)
     const bWaitingTime = Date.parse(b.waitingSince ?? b.date)
@@ -1099,7 +1144,7 @@ export function PendingOrders({
                   </div>
                 )}
                 {focusedOrderId && <div className="mt-4 grid w-full max-w-2xl gap-3 border-l-2 border-primary/50 pl-4">
-                  {["completed", "delivered", "refunded"].includes((order.orderStatus ?? "").trim().toLowerCase()) ? (
+                  {isTerminalOrderStatus(order.orderStatus) ? (
                     <p className="text-xs font-bold text-primary">
                       {getOrderStatusGroup(order.orderStatus) === "Refunded"
                         ? "Order marked refunded. The saved Epic session remains available."
@@ -1219,6 +1264,7 @@ export function PendingOrders({
               </div>
               <div className="flex min-w-0 flex-col items-start gap-3 sm:items-end">
                 <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-bold uppercase tracking-wider ${statusTone(getOrderStatusLabel(order.orderStatus, Boolean(epicAccounts[Number(order.id)] || epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))))}`}>
+                  {order.orderStatus === "BOT_PROCESSING" && <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                   {getOrderStatusLabel(order.orderStatus, Boolean(epicAccounts[Number(order.id)] || epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored))) === "Authenticated" && <Check className="size-3" aria-hidden="true" />}
                   {getOrderStatusLabel(order.orderStatus, Boolean(epicAccounts[Number(order.id)] || epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored)))}
                 </span>
@@ -1253,6 +1299,33 @@ export function PendingOrders({
                   <p className="mt-1 font-display text-xl font-black text-primary">{currency(orderProfit(order))}</p>
                 </div>
               </div>
+              {(!isTerminalOrderStatus(order.orderStatus) || order.proofImageUrl || order.errorReason) && (
+                <div className={focusedOrderId ? "flex flex-col gap-3 md:col-span-2" : "flex flex-col gap-3 sm:col-span-2"}>
+                  {!isTerminalOrderStatus(order.orderStatus) && (
+                    <BotHandoffPanel
+                      order={order}
+                      epicDisplayName={epicAccounts[Number(order.id)]}
+                      hasEpicSession={Boolean(
+                        epicAccounts[Number(order.id)] ||
+                          epicSessions?.some((session) => session.orderId === order.id && session.accessTokenStored),
+                      )}
+                      onChange={onChange}
+                    />
+                  )}
+                  {order.proofImageUrl && (
+                    <ProofViewer
+                      proofImageUrl={order.proofImageUrl}
+                      orderLabel={order.u7buyOrderId || order.id}
+                      vbucksAfter={order.vbucksAfter}
+                    />
+                  )}
+                  {isTerminalOrderStatus(order.orderStatus) && !order.proofImageUrl && order.errorReason && (
+                    <p className="border border-border bg-background/50 px-3 py-2 text-xs text-muted-foreground">
+                      Bot note: {order.errorReason}
+                    </p>
+                  )}
+                </div>
+              )}
             </article>
           ))}
         </div>

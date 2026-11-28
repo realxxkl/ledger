@@ -1,4 +1,5 @@
 import { pool } from "@/lib/db"
+import { ensureBotSchema } from "@/lib/db/ensure-bot-schema"
 
 let schemaSetup: Promise<void> | null = null
 
@@ -34,4 +35,5 @@ export async function ensureOrderTrackingSchema() {
     })
   }
   await schemaSetup
+  await ensureBotSchema()
 }

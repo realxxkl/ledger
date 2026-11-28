@@ -1,4 +1,10 @@
-import { boolean, integer, pgTable, serial, text, numeric, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import { boolean, customType, integer, jsonb, pgTable, serial, text, numeric, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea"
+  },
+})
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -91,6 +97,14 @@ export const entries = pgTable("entries", {
   waitingSince: text("waiting_since"),
   vbucksBefore: integer("vbucks_before"),
   vbucksAfter: integer("vbucks_after"),
+  epicUsername: text("epic_username"),
+  vbucksAmount: integer("vbucks_amount"),
+  packCombination: jsonb("pack_combination").$type<number[]>(),
+  cardLast4: text("card_last4"),
+  gameLoginLink: text("game_login_link"),
+  proofImageUrl: text("proof_image_url"),
+  errorImageUrl: text("error_image_url"),
+  errorReason: text("error_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   externalOrderIdUnique: uniqueIndex("entries_external_order_id_unique").on(table.externalOrderId),
@@ -145,4 +159,23 @@ export const playerokSession = pgTable("playerok_session", {
   ordersQuery: text("orders_query"),
   ordersVariables: text("orders_variables"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const botSettings = pgTable("bot_settings", {
+  id: integer("id").primaryKey().default(1),
+  botQueueLocked: boolean("bot_queue_locked").notNull().default(false),
+  botLockReason: text("bot_lock_reason"),
+  botLockErrorImageUrl: text("bot_lock_error_image_url"),
+  botLockOrderId: integer("bot_lock_order_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const botMedia = pgTable("bot_media", {
+  id: text("id").primaryKey(),
+  orderId: integer("order_id").references(() => entries.id, { onDelete: "set null" }),
+  kind: text("kind").notNull(),
+  mimeType: text("mime_type").notNull(),
+  data: bytea("data").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })

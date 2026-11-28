@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { and, desc, eq, or } from "drizzle-orm"
+import { and, desc, eq, inArray, or } from "drizzle-orm"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { ensureOrderTrackingSchema } from "@/lib/db/ensure-order-tracking-schema"
 import { entries, playerokSession, presets } from "@/lib/db/schema"
+import { isBotOrderStatus, isFulfilledOrCompletedStatus, parseVbucksAmount } from "@/lib/bot-status"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -517,8 +518,15 @@ export async function POST(request: NextRequest) {
         .where(
           and(
             or(eq(entries.source, "playerok"), eq(entries.platform, "PO")),
-            or(eq(entries.orderStatus, "New Order Received"), eq(entries.orderStatus, "In Progress"))
-          )
+            inArray(entries.orderStatus, [
+              "New Order Received",
+              "In Progress",
+              "READY_FOR_TOPUP",
+              "BOT_PROCESSING",
+              "USERNAME_MISMATCH",
+              "HOLD_ESCALATION",
+            ]),
+          ),
         )
 
       for (const pendingOrder of pendingLedgerOrders) {
@@ -617,6 +625,7 @@ export async function POST(request: NextRequest) {
           buyerUsername,
           chatId,
           waitingSince: timestamp.toISOString(),
+          vbucksAmount: parseVbucksAmount(normalizeItemTitle(itemTitle)) ?? parseVbucksAmount(itemTitle),
           originalCurrency: "RUB",
           exchangeRate: String(RUB_PER_USD),
         }).onConflictDoNothing({ target: entries.externalOrderId })
@@ -624,8 +633,14 @@ export async function POST(request: NextRequest) {
       } else {
         // Update existing entry with fresh status/chatId
         const existingStatus = existing[0]?.orderStatus || ""
-        const isCompleted = existingStatus.toLowerCase() === "completed" || existingStatus.toLowerCase() === "delivered"
-        const nextStatus = isRefunded ? "Refunded" : (isCompleted ? existingStatus : "New Order Received")
+        const normalizedExisting = existingStatus.trim().toLowerCase()
+        const isCompleted = isFulfilledOrCompletedStatus(existingStatus)
+        const preserveStatus =
+          isCompleted ||
+          isBotOrderStatus(existingStatus) ||
+          normalizedExisting === "refunded" ||
+          normalizedExisting === "cancelled"
+        const nextStatus = isRefunded ? "Refunded" : (preserveStatus ? existingStatus : "New Order Received")
 
         await db.update(entries).set({
           orderStatus: nextStatus,

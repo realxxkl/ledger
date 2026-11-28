@@ -7,12 +7,14 @@ import { useLedger } from "@/lib/use-ledger"
 import { currency, formatWaitingSince } from "@/lib/types"
 import { getOrderStatusGroup, getOrderStatusLabel, PendingOrders } from "@/components/pending-orders"
 import { LoadingScreen } from "@/components/loading-screen"
+import { BotQueueBanner } from "@/components/bot-queue-banner"
+import { isBotOrderStatus } from "@/lib/bot-status"
 
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { data, isLoading, mutate } = useLedger()
   const [savingDate, setSavingDate] = useState(false)
   const [dateError, setDateError] = useState("")
-  const order = data?.entries.find((entry) => entry.id === orderId && entry.u7buyOrderId)
+  const order = data?.entries.find((entry) => entry.id === orderId && (entry.u7buyOrderId || isBotOrderStatus(entry.orderStatus)))
   const sessionExists = data?.epicSessions?.some((session) => session.orderId === orderId && session.accessTokenStored)
   const orderStatusGroup = getOrderStatusGroup(order?.orderStatus)
   const completed = orderStatusGroup === "Completed"
@@ -53,7 +55,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       : null
 
   return (
-    <section className="border-2 border-border bg-card">
+    <div className="flex flex-col gap-6">
+      <BotQueueBanner
+        botQueue={data.botQueue}
+        entries={data.entries}
+        onChange={() => mutate()}
+        compactWhenActive
+      />
+      <section className="border-2 border-border bg-card">
       <header className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-border p-5">
         <div>
           <Link href="/?tab=pending-orders" className="text-xs font-bold uppercase tracking-wider text-primary underline">← All orders</Link>
@@ -69,10 +78,15 @@ export function OrderDetail({ orderId }: { orderId: string }) {
               >
                 {order.u7buyOrderId}
               </a>
-            ) : order.u7buyOrderId}
+            ) : (order.u7buyOrderId || `#${order.id}`)}
           </p>
           <h2 className="mt-2 font-display text-3xl font-black uppercase tracking-tight">{order.service}</h2>
-          <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">{order.platform} · Entry #{order.id}</p>
+          <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">
+            {order.platform} · Entry #{order.id}
+            {order.epicUsername ? ` · Epic: ${order.epicUsername}` : ""}
+            {order.cardLast4 ? ` · Card •••• ${order.cardLast4}` : ""}
+            {order.vbucksAmount !== undefined ? ` · ${order.vbucksAmount} V-Bucks` : ""}
+          </p>
         </div>
         <span className="inline-flex items-center gap-2 border-2 border-primary px-3 py-2 text-xs font-bold uppercase tracking-wider text-primary">
           {sessionExists && <Check className="size-3.5" aria-hidden="true" />}
@@ -121,6 +135,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         />
       </div>
     </section>
+    </div>
   )
 }
 

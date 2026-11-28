@@ -6,6 +6,7 @@ import { Trash2, X, Edit2, Check, LoaderCircle } from "lucide-react"
 import type { LedgerData } from "@/lib/types"
 import { currency } from "@/lib/types"
 import { apiSend } from "@/lib/use-ledger"
+import { isBotOrderStatus, isFulfilledOrCompletedStatus } from "@/lib/bot-status"
 
 function monthLabel(month: string): string {
   const [y, m] = month.split("-").map(Number)
@@ -107,10 +108,10 @@ export function EntriesTable({
                 <tr key={e.id} className="border-b border-border last:border-0 hover:bg-muted/40">
                   <td className="px-5 py-3 text-muted-foreground">{e.date}</td>
                   <td className="px-5 py-3 font-bold">
-                    {e.u7buyOrderId ? (
+                    {e.u7buyOrderId || isBotOrderStatus(e.orderStatus) ? (
                       <Link href={`/orders/${e.id}`} className="underline decoration-border underline-offset-4 transition-colors hover:text-primary">
                         {e.service}
-                        <span className="sr-only"> — open order {e.u7buyOrderId}</span>
+                        <span className="sr-only"> — open order {e.u7buyOrderId || e.id}</span>
                       </Link>
                     ) : e.service}
                   </td>
@@ -126,17 +127,27 @@ export function EntriesTable({
                     {currency(e.profit)}
                   </td>
                   <td className="px-5 py-3">
-                    {e.u7buyOrderId ? (
+                    {e.u7buyOrderId || isBotOrderStatus(e.orderStatus) ? (
                       <>
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs text-muted-foreground">{e.orderStatus || "-"}</span>
                           <Link href={`/orders/${e.id}`} className="text-[10px] font-bold uppercase tracking-wider text-primary underline underline-offset-2">Manage</Link>
                         </div>
-                        {e.vbucksAfter !== undefined && ["completed", "delivered"].includes((e.orderStatus ?? "").trim().toLowerCase()) && (
-                          <span className="mt-1 inline-flex border border-positive/50 bg-positive/10 px-1.5 py-0.5 text-[10px] font-bold text-positive">
-                            {e.vbucksAfter} VBucks
-                          </span>
-                        )}
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          {e.vbucksAfter !== undefined && isFulfilledOrCompletedStatus(e.orderStatus) && (
+                            <span className="inline-flex border border-positive/50 bg-positive/10 px-1.5 py-0.5 text-[10px] font-bold text-positive">
+                              {e.vbucksAfter} VBucks
+                            </span>
+                          )}
+                          {e.proofImageUrl && (
+                            <Link
+                              href={`/orders/${e.id}`}
+                              className="inline-flex border border-primary/50 bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary hover:underline"
+                            >
+                              Proof
+                            </Link>
+                          )}
+                        </div>
                       </>
                     ) : editingStatus === e.id ? (
                       <div className="flex items-center gap-1">

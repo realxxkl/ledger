@@ -19,9 +19,25 @@ export type Entry = {
   waitingSince?: string
   vbucksBefore?: number
   vbucksAfter?: number
+  epicUsername?: string
+  vbucksAmount?: number
+  packCombination?: number[]
+  cardLast4?: string
+  gameLoginLink?: string
+  proofImageUrl?: string
+  errorImageUrl?: string
+  errorReason?: string
   orderAmount?: number
   orderCost?: number
   orderFee?: number
+}
+
+export type BotQueueState = {
+  locked: boolean
+  reason: string | null
+  errorImageUrl: string | null
+  orderId: string | null
+  updatedAt: string | null
 }
 
 export type Withdrawal = {
@@ -59,7 +75,9 @@ export type LedgerData = {
     tokenExpiresAt?: string
     authLink?: string
     authLinkExpiresAt?: string
+    authUserCode?: string
   }[]
+  botQueue?: BotQueueState
 }
 
 export const currency = (n: number) =>
