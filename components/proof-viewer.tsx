@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Check, Copy, Download, Eye, LoaderCircle, X } from "lucide-react"
+import { Check, Copy, Download, Eye, LoaderCircle, Send, X } from "lucide-react"
 
 async function convertBlobToPng(blob: Blob): Promise<Blob> {
   if (blob.type === "image/png") return blob
@@ -36,13 +36,27 @@ export function ProofViewer({
   proofImageUrl,
   orderLabel,
   vbucksAfter,
+  orderId,
+  isPlayerokOrder,
+  playerokMessageSent,
+  playerokDealCompleted,
+  playerokDeliveryError,
+  onChange,
 }: {
   proofImageUrl: string
   orderLabel: string
   vbucksAfter?: number
+  orderId?: string
+  isPlayerokOrder?: boolean
+  playerokMessageSent?: boolean
+  playerokDealCompleted?: boolean
+  playerokDeliveryError?: string
+  onChange?: () => void | Promise<unknown>
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle")
   const [copyError, setCopyError] = useState("")
+  const [sendingToPlayerok, setSendingToPlayerok] = useState(false)
+  const [playerokActionError, setPlayerokActionError] = useState("")
   const [previewOpen, setPreviewOpen] = useState(false)
   const dialogRef = useRef<HTMLDialogElement>(null)
 
@@ -85,6 +99,34 @@ export function ProofViewer({
   }
 
   const downloadHref = `${proofImageUrl}?download=1`
+  const playerokDone = Boolean(playerokMessageSent && playerokDealCompleted)
+  const playerokStatusText = playerokMessageSent
+    ? "PlayerOK: Proof sent, deal not marked yet"
+    : playerokDealCompleted
+      ? "PlayerOK: Deal marked, proof not sent"
+      : "PlayerOK: Not delivered yet"
+
+  async function handleDeliverToPlayerok() {
+    if (!orderId || sendingToPlayerok) return
+    setSendingToPlayerok(true)
+    setPlayerokActionError("")
+    try {
+      const response = await fetch(`/api/orders/${orderId}/playerok-deliver`, {
+        method: "POST",
+      })
+      const payload = await response.json().catch(() => ({}))
+      await onChange?.()
+      if (!response.ok || payload?.error) {
+        throw new Error(payload?.error || "Could not send proof and complete deal on PlayerOK")
+      }
+    } catch (err) {
+      setPlayerokActionError(
+        err instanceof Error ? err.message : "Could not send proof and complete deal on PlayerOK",
+      )
+    } finally {
+      setSendingToPlayerok(false)
+    }
+  }
 
   return (
     <div className="border-2 border-positive/40 bg-positive/5 p-3">
@@ -116,6 +158,18 @@ export function ProofViewer({
                 Final balance: {vbucksAfter} V-Bucks
               </span>
             )}
+            {isPlayerokOrder && (
+              <span
+                className={`inline-flex items-center gap-1 border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  playerokDone
+                    ? "border-positive/50 bg-positive/10 text-positive"
+                    : "border-fee/60 bg-fee/10 text-fee"
+                }`}
+              >
+                {playerokDone && <Check className="size-3" aria-hidden="true" />}
+                {playerokDone ? "PlayerOK: Proof sent & marked completed" : playerokStatusText}
+              </span>
+            )}
           </div>
           <div className="mt-2.5 flex flex-wrap gap-2">
             <button
@@ -145,10 +199,34 @@ export function ProofViewer({
               <Download className="size-3" aria-hidden="true" />
               Download
             </a>
+            {isPlayerokOrder && orderId && !playerokDone && (
+              <button
+                type="button"
+                disabled={sendingToPlayerok}
+                onClick={handleDeliverToPlayerok}
+                className="inline-flex items-center gap-1.5 border-2 border-border bg-background px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-wait disabled:opacity-60"
+              >
+                {sendingToPlayerok ? (
+                  <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                ) : (
+                  <Send className="size-3" aria-hidden="true" />
+                )}
+                {sendingToPlayerok
+                  ? "Sending to PlayerOK…"
+                  : playerokDeliveryError || playerokMessageSent || playerokDealCompleted
+                    ? "Retry PlayerOK"
+                    : "Send & Complete on PlayerOK"}
+              </button>
+            )}
           </div>
           {copyState === "error" && copyError && (
             <p role="alert" className="mt-2 text-xs font-bold text-destructive">
               {copyError}
+            </p>
+          )}
+          {isPlayerokOrder && !playerokDone && (playerokActionError || playerokDeliveryError) && (
+            <p role="alert" className="mt-2 text-xs font-bold text-destructive">
+              {playerokActionError || playerokDeliveryError}
             </p>
           )}
         </div>

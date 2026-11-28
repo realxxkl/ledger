@@ -10,6 +10,7 @@ import {
   saveBotMedia,
   type SupportedImageMimeType,
 } from "@/lib/bot-media"
+import { fulfillOrderOnPlayerok } from "@/lib/playerok-fulfillment"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -199,12 +200,19 @@ export async function POST(
       })
       .where(eq(entries.id, orderId))
 
+    const playerok = await fulfillOrderOnPlayerok({
+      orderId,
+      imageBuffer: decodedImage.buffer,
+      mimeType: decodedImage.mimeType,
+    })
+
     return NextResponse.json({
       ok: true,
       order_id: String(orderId),
       status: "FULFILLED",
       proof_image_url: saved.url,
       final_vbucks_balance: balanceResult.value,
+      playerok,
     })
   } catch (err) {
     console.error("[Bot] POST /api/bot/orders/[id]/complete failed:", err)

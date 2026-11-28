@@ -13,6 +13,9 @@ export async function ensureBotSchema() {
       ALTER TABLE entries ADD COLUMN IF NOT EXISTS proof_image_url text;
       ALTER TABLE entries ADD COLUMN IF NOT EXISTS error_image_url text;
       ALTER TABLE entries ADD COLUMN IF NOT EXISTS error_reason text;
+      ALTER TABLE entries ADD COLUMN IF NOT EXISTS playerok_message_sent boolean NOT NULL DEFAULT false;
+      ALTER TABLE entries ADD COLUMN IF NOT EXISTS playerok_deal_completed boolean NOT NULL DEFAULT false;
+      ALTER TABLE entries ADD COLUMN IF NOT EXISTS playerok_delivery_error text;
       CREATE INDEX IF NOT EXISTS entries_bot_queue_idx
         ON entries (created_at ASC, id ASC)
         WHERE order_status = 'READY_FOR_TOPUP';

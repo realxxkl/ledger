@@ -1317,6 +1317,12 @@ export function PendingOrders({
                       proofImageUrl={order.proofImageUrl}
                       orderLabel={order.u7buyOrderId || order.id}
                       vbucksAfter={order.vbucksAfter}
+                      orderId={order.id}
+                      isPlayerokOrder={order.source === "playerok" || order.platform === "PO"}
+                      playerokMessageSent={order.playerokMessageSent}
+                      playerokDealCompleted={order.playerokDealCompleted}
+                      playerokDeliveryError={order.playerokDeliveryError}
+                      onChange={onChange}
                     />
                   )}
                   {isTerminalOrderStatus(order.orderStatus) && !order.proofImageUrl && order.errorReason && (

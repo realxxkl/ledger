@@ -105,6 +105,9 @@ export const entries = pgTable("entries", {
   proofImageUrl: text("proof_image_url"),
   errorImageUrl: text("error_image_url"),
   errorReason: text("error_reason"),
+  playerokMessageSent: boolean("playerok_message_sent").notNull().default(false),
+  playerokDealCompleted: boolean("playerok_deal_completed").notNull().default(false),
+  playerokDeliveryError: text("playerok_delivery_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   externalOrderIdUnique: uniqueIndex("entries_external_order_id_unique").on(table.externalOrderId),

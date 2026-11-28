@@ -27,6 +27,9 @@ export type Entry = {
   proofImageUrl?: string
   errorImageUrl?: string
   errorReason?: string
+  playerokMessageSent?: boolean
+  playerokDealCompleted?: boolean
+  playerokDeliveryError?: string
   orderAmount?: number
   orderCost?: number
   orderFee?: number
